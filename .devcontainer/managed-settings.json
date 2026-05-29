@@ -14,11 +14,15 @@
     "defaultMode": "default",
 
     "//": "Deny rules prevent Claude from reading/writing sensitive files.",
+    "//": "The .devcontainer/** rule (from trailofbits) prevents Claude from",
+    "//": "reading or modifying its own sandbox configuration.",
     "deny": [
       "Read(.env*)",
       "Read(*.pem)",
       "Read(*credentials*)",
-      "Read(*secret*)"
+      "Read(*secret*)",
+      "Read(.devcontainer/**)",
+      "Edit(.devcontainer/**)"
     ]
   }
 }

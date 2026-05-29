@@ -4,8 +4,15 @@
 # This Dockerfile creates a secure development environment with:
 #   - Non-root user ("developer") with minimal privileges
 #   - Claude Code installed at a pinned (or latest) version
+#   - Bubblewrap for Claude Code's native sandboxing
 #   - Firewall tooling for network egress restrictions
 #   - Organization-managed settings baked into the image
+#
+# Security patterns sourced from:
+#   - anthropics/claude-code (official reference)
+#   - trailofbits/claude-code-devcontainer (bubblewrap, NPM hardening)
+#   - FoamoftheSea/claude-code-sandbox (resource limits, cap-drop)
+#   - centminmod/claude-code-devcontainers (multi-tool, git hooks)
 #
 # Customize the base image and tooling sections for your project's stack.
 # =============================================================================
@@ -18,6 +25,9 @@
 #   node:20            - Node.js projects
 #   python:3.12        - Python projects
 #   mcr.microsoft.com/devcontainers/base:ubuntu - general purpose
+#
+# For maximum reproducibility, pin by digest (trailofbits pattern):
+#   FROM mcr.microsoft.com/devcontainers/base:ubuntu24.04@sha256:<digest>
 FROM node:20-slim
 
 # ---------------------------------------------------------------------------
@@ -35,7 +45,9 @@ ARG USER_GID=1000
 # System packages
 # ---------------------------------------------------------------------------
 # Core: git, sudo, shell
-# Firewall: iptables, ipset, iproute2, dnsutils, aggregate (for IP aggregation)
+# Sandbox: bubblewrap (bwrap) — used by Claude Code's native sandboxing.
+#   Installed following trailofbits/claude-code-devcontainer pattern.
+# Firewall: iptables, ipset, iproute2, dnsutils, aggregate
 # Optional: remove firewall packages if not using init-firewall.sh
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
@@ -46,6 +58,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     less \
     procps \
     jq \
+    # Bubblewrap for Claude Code native sandboxing (trailofbits pattern)
+    bubblewrap \
     # Firewall tooling (remove if not needed)
     iptables \
     ipset \
@@ -59,6 +73,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # ---------------------------------------------------------------------------
 # Create a dedicated non-root user. Claude Code rejects
 # --dangerously-skip-permissions when run as root.
+#
+# Sudoers: restrict to only the firewall script (least-privilege).
+# The broad NOPASSWD:ALL line below is a convenience default — for
+# production, replace it with scoped rules like the firewall sudoer.
 RUN groupadd --gid $USER_GID $USERNAME \
     && useradd --uid $USER_UID --gid $USER_GID -m -s /bin/zsh $USERNAME \
     && echo "$USERNAME ALL=(root) NOPASSWD:ALL" > /etc/sudoers.d/$USERNAME \

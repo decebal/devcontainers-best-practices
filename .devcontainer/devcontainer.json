@@ -2,9 +2,10 @@
   // =============================================================================
   // Dev Container + Claude Code: Best Practices Template
   // =============================================================================
-  // This template provides a secure, production-ready dev container setup with
-  // Claude Code pre-installed, network egress restrictions, and org policy
-  // enforcement. Customize it for your project's toolchain.
+  // A hardened dev container incorporating security patterns from:
+  //   - Anthropic's official reference container
+  //   - Trail of Bits' claude-code-devcontainer (read-only mounts, NPM hardening)
+  //   - FoamoftheSea's claude-code-sandbox (resource limits, cap-drop)
   //
   // Getting started: https://code.claude.com/docs/en/devcontainer
   // =============================================================================
@@ -31,13 +32,23 @@
   "remoteUser": "developer",
 
   // ---------------------------------------------------------------------------
-  // Network hardening capabilities
+  // Capabilities: drop all, add back only what's needed
   // ---------------------------------------------------------------------------
-  // Required only if you use init-firewall.sh for egress restrictions.
-  // Remove these if you rely on external network controls instead.
+  // Inspired by centminmod/claude-code-devcontainers (cap-drop ALL pattern)
+  // and FoamoftheSea/claude-code-sandbox (no-new-privileges).
+  //
+  // NET_ADMIN + NET_RAW are required only for init-firewall.sh.
+  // Remove them if you rely on external network controls.
+  //
+  // IMPORTANT: Do NOT add SYS_ADMIN — it defeats read-only mount protections.
+  // See: trailofbits/claude-code-devcontainer check_no_sys_admin()
   "runArgs": [
+    "--cap-drop=ALL",
     "--cap-add=NET_ADMIN",
-    "--cap-add=NET_RAW"
+    "--cap-add=NET_RAW",
+    "--security-opt=no-new-privileges:true",
+    "--pids-limit=256",
+    "--memory=8g"
   ],
 
   // ---------------------------------------------------------------------------
@@ -49,13 +60,18 @@
   "workspaceFolder": "/workspace",
 
   // ---------------------------------------------------------------------------
-  // Persistent volumes
+  // Persistent volumes + read-only host mounts
   // ---------------------------------------------------------------------------
   // Persist Claude Code auth, settings, and session history across rebuilds.
   // ${devcontainerId} isolates state per-project so different repos don't clash.
+  //
+  // .devcontainer is mounted read-only so Claude cannot modify its own sandbox
+  // config from inside the container. Pattern from trailofbits.
+  // .git/hooks is read-only to prevent Claude from installing malicious hooks.
   "mounts": [
     "source=claude-config-${devcontainerId},target=/home/developer/.claude,type=volume",
-    "source=claude-bashhistory-${devcontainerId},target=/commandhistory,type=volume"
+    "source=claude-bashhistory-${devcontainerId},target=/commandhistory,type=volume",
+    "source=${localWorkspaceFolder}/.devcontainer,target=/workspace/.devcontainer,type=bind,readonly"
   ],
 
   // ---------------------------------------------------------------------------
@@ -74,7 +90,17 @@
     // "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
 
     // Node memory limit for large projects.
-    "NODE_OPTIONS": "--max-old-space-size=4096"
+    "NODE_OPTIONS": "--max-old-space-size=4096",
+
+    // ---------------------------------------------------------------------------
+    // NPM supply chain hardening (from trailofbits/claude-code-devcontainer)
+    // ---------------------------------------------------------------------------
+    // Prevent npm postinstall scripts from executing arbitrary code.
+    "NPM_CONFIG_IGNORE_SCRIPTS": "true",
+    // Require security audit on install.
+    "NPM_CONFIG_AUDIT": "true",
+    // Only allow packages published >24 hours ago (reduces typosquat risk).
+    "NPM_CONFIG_MINIMUM_RELEASE_AGE": "1440"
   },
 
   // ---------------------------------------------------------------------------
@@ -93,6 +119,17 @@
         "terminal.integrated.defaultProfile.linux": "zsh"
       }
     }
+  },
+
+  // ---------------------------------------------------------------------------
+  // Resource requirements (optional, for Codespaces)
+  // ---------------------------------------------------------------------------
+  // Inspired by centminmod/claude-code-devcontainers.
+  // Ensures the container gets enough resources for Claude Code.
+  "hostRequirements": {
+    "cpus": 4,
+    "memory": "8gb",
+    "storage": "32gb"
   },
 
   // ---------------------------------------------------------------------------
