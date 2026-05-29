@@ -35,6 +35,13 @@ async fn template_firewall() -> HttpResponse {
         .body(include_str!("../.devcontainer/init-firewall.sh"))
 }
 
+async fn template_chown_volumes() -> HttpResponse {
+    HttpResponse::Ok()
+        .content_type("text/plain")
+        .insert_header(("Content-Disposition", "attachment; filename=\"chown-volumes.sh\""))
+        .body(include_str!("../.devcontainer/chown-volumes.sh"))
+}
+
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     let port: u16 = std::env::var("PORT")
@@ -48,6 +55,7 @@ async fn main() -> std::io::Result<()> {
     println!("  /template/Dockerfile");
     println!("  /template/managed-settings.json");
     println!("  /template/init-firewall.sh");
+    println!("  /template/chown-volumes.sh");
 
     HttpServer::new(|| {
         App::new()
@@ -56,6 +64,7 @@ async fn main() -> std::io::Result<()> {
             .route("/template/Dockerfile", web::get().to(template_dockerfile))
             .route("/template/managed-settings.json", web::get().to(template_managed_settings))
             .route("/template/init-firewall.sh", web::get().to(template_firewall))
+            .route("/template/chown-volumes.sh", web::get().to(template_chown_volumes))
             .service(Files::new("/static", "static").show_files_listing())
     })
     .bind(("0.0.0.0", port))?

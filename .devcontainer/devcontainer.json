@@ -6,6 +6,7 @@
   //   - Anthropic's official reference container
   //   - Trail of Bits' claude-code-devcontainer (read-only mounts, NPM hardening)
   //   - FoamoftheSea's claude-code-sandbox (resource limits, cap-drop)
+  //   - Real-world production setups (DNS/TCP fixes, scoped sudoers, DX tooling)
   //
   // Getting started: https://code.claude.com/docs/en/devcontainer
   // =============================================================================
@@ -20,7 +21,11 @@
       "CLAUDE_CODE_VERSION": "latest",
 
       // Pass host timezone into the container.
-      "TZ": "${localEnv:TZ:UTC}"
+      "TZ": "${localEnv:TZ:UTC}",
+
+      // DX tooling versions — pin for reproducible builds.
+      "GIT_DELTA_VERSION": "0.18.2",
+      "ZSH_IN_DOCKER_VERSION": "1.2.0"
     }
   },
 
@@ -71,7 +76,13 @@
   "mounts": [
     "source=claude-config-${devcontainerId},target=/home/developer/.claude,type=volume",
     "source=claude-bashhistory-${devcontainerId},target=/commandhistory,type=volume",
-    "source=${localWorkspaceFolder}/.devcontainer,target=/workspace/.devcontainer,type=bind,readonly"
+    "source=${localWorkspaceFolder}/.devcontainer,target=/workspace/.devcontainer,type=bind,readonly",
+
+    // Persist bun's global cache and node_modules across rebuilds.
+    // Uses Docker volumes so installs survive container recreation.
+    // Requires chown-volumes.sh to fix ownership after mount.
+    "source=claude-bunstore-${devcontainerId},target=/home/developer/.bun,type=volume",
+    "source=claude-nodemodules-${devcontainerId},target=/workspace/node_modules,type=volume"
   ],
 
   // ---------------------------------------------------------------------------
@@ -89,18 +100,16 @@
     // privacy-sensitive environments.
     // "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
 
-    // Node memory limit for large projects.
-    "NODE_OPTIONS": "--max-old-space-size=4096",
-
     // ---------------------------------------------------------------------------
-    // NPM supply chain hardening (from trailofbits/claude-code-devcontainer)
+    // Bun supply chain hardening
     // ---------------------------------------------------------------------------
-    // Prevent npm postinstall scripts from executing arbitrary code.
-    "NPM_CONFIG_IGNORE_SCRIPTS": "true",
-    // Require security audit on install.
-    "NPM_CONFIG_AUDIT": "true",
-    // Only allow packages published >24 hours ago (reduces typosquat risk).
-    "NPM_CONFIG_MINIMUM_RELEASE_AGE": "1440"
+    // Bun ignores lifecycle scripts by default (unlike npm), providing
+    // built-in supply chain protection. No additional env vars needed.
+    // See: https://bun.sh/docs/cli/install#lifecycle-scripts
+    //
+    // To explicitly allow scripts for trusted packages:
+    //   bun install --trust @anthropic-ai/claude-code
+    "BUN_INSTALL": "/home/developer/.bun"
   },
 
   // ---------------------------------------------------------------------------
@@ -135,8 +144,12 @@
   // ---------------------------------------------------------------------------
   // Lifecycle commands
   // ---------------------------------------------------------------------------
-  // Start the egress firewall after the container is ready.
-  // Remove this if you don't use the firewall script.
+  // postCreateCommand: runs once after container creation (not on restart).
+  // Fix volume ownership + copy personal VS Code overrides if present.
+  "postCreateCommand": "sudo /usr/local/bin/chown-volumes.sh",
+
+  // postStartCommand: runs every time the container starts.
+  // Start the egress firewall. Remove this if you don't use the firewall script.
   "postStartCommand": "sudo /usr/local/bin/init-firewall.sh",
   "waitFor": "postStartCommand"
 }

@@ -3,14 +3,15 @@
 # =============================================================================
 # This Dockerfile creates a secure development environment with:
 #   - Non-root user ("developer") with minimal privileges
-#   - Claude Code installed at a pinned (or latest) version
+#   - Bun runtime for fast JavaScript/TypeScript tooling
+#   - Claude Code installed via bun
 #   - Bubblewrap for Claude Code's native sandboxing
 #   - Firewall tooling for network egress restrictions
 #   - Organization-managed settings baked into the image
 #
 # Security patterns sourced from:
 #   - anthropics/claude-code (official reference)
-#   - trailofbits/claude-code-devcontainer (bubblewrap, NPM hardening)
+#   - trailofbits/claude-code-devcontainer (bubblewrap, supply chain hardening)
 #   - FoamoftheSea/claude-code-sandbox (resource limits, cap-drop)
 #   - centminmod/claude-code-devcontainers (multi-tool, git hooks)
 #
@@ -20,15 +21,10 @@
 # ---------------------------------------------------------------------------
 # Base image
 # ---------------------------------------------------------------------------
-# Choose a base that matches your project's runtime.
-# Examples:
-#   node:20            - Node.js projects
-#   python:3.12        - Python projects
-#   mcr.microsoft.com/devcontainers/base:ubuntu - general purpose
-#
+# Using Debian slim as the base — bun is installed separately.
 # For maximum reproducibility, pin by digest (trailofbits pattern):
-#   FROM mcr.microsoft.com/devcontainers/base:ubuntu24.04@sha256:<digest>
-FROM node:20-slim
+#   FROM debian:bookworm-slim@sha256:<digest>
+FROM debian:bookworm-slim
 
 # ---------------------------------------------------------------------------
 # Arguments
@@ -40,6 +36,7 @@ ARG CLAUDE_CODE_VERSION=latest
 ARG USERNAME=developer
 ARG USER_UID=1000
 ARG USER_GID=1000
+ARG BUN_VERSION=1.2.15
 
 # ---------------------------------------------------------------------------
 # System packages
@@ -54,10 +51,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     sudo \
     zsh \
     curl \
+    wget \
     ca-certificates \
     less \
     procps \
     jq \
+    fzf \
+    man-db \
+    unzip \
+    gnupg2 \
+    gh \
+    nano \
+    vim \
     # Bubblewrap for Claude Code native sandboxing (trailofbits pattern)
     bubblewrap \
     # Firewall tooling (remove if not needed)
@@ -73,20 +78,26 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # ---------------------------------------------------------------------------
 # Create a dedicated non-root user. Claude Code rejects
 # --dangerously-skip-permissions when run as root.
-#
-# Sudoers: restrict to only the firewall script (least-privilege).
-# The broad NOPASSWD:ALL line below is a convenience default — for
-# production, replace it with scoped rules like the firewall sudoer.
 RUN groupadd --gid $USER_GID $USERNAME \
-    && useradd --uid $USER_UID --gid $USER_GID -m -s /bin/zsh $USERNAME \
-    && echo "$USERNAME ALL=(root) NOPASSWD:ALL" > /etc/sudoers.d/$USERNAME \
-    && chmod 0440 /etc/sudoers.d/$USERNAME
+    && useradd --uid $USER_UID --gid $USER_GID -m -s /bin/zsh $USERNAME
 
 # ---------------------------------------------------------------------------
 # Directories and permissions
 # ---------------------------------------------------------------------------
-RUN mkdir -p /workspace /home/$USERNAME/.claude /commandhistory \
-    && chown -R $USERNAME:$USERNAME /workspace /home/$USERNAME/.claude /commandhistory
+RUN mkdir -p /workspace /home/$USERNAME/.claude /home/$USERNAME/.bun /commandhistory \
+    && chown -R $USERNAME:$USERNAME /workspace /home/$USERNAME/.claude /home/$USERNAME/.bun /commandhistory
+
+# ---------------------------------------------------------------------------
+# Install Bun
+# ---------------------------------------------------------------------------
+# Install bun globally. Bun provides a fast JS/TS runtime, package manager,
+# bundler, and test runner in one binary.
+ENV BUN_INSTALL=/home/$USERNAME/.bun
+ENV PATH=$BUN_INSTALL/bin:$PATH
+
+USER $USERNAME
+RUN curl -fsSL https://bun.sh/install | bash -s -- "bun-v${BUN_VERSION}"
+USER root
 
 # ---------------------------------------------------------------------------
 # Organization-managed settings (HIGHEST PRECEDENCE)
@@ -101,20 +112,51 @@ RUN mkdir -p /etc/claude-code
 COPY managed-settings.json /etc/claude-code/managed-settings.json
 
 # ---------------------------------------------------------------------------
-# Install Claude Code
+# git-delta (better diffs)
 # ---------------------------------------------------------------------------
-# Install globally so it's available to all users in the container.
-RUN npm install -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}
+ARG GIT_DELTA_VERSION=0.18.2
+RUN ARCH=$(dpkg --print-architecture) && \
+    wget -q "https://github.com/dandavison/delta/releases/download/${GIT_DELTA_VERSION}/git-delta_${GIT_DELTA_VERSION}_${ARCH}.deb" && \
+    dpkg -i "git-delta_${GIT_DELTA_VERSION}_${ARCH}.deb" && \
+    rm "git-delta_${GIT_DELTA_VERSION}_${ARCH}.deb"
 
 # ---------------------------------------------------------------------------
-# Firewall script
+# Switch to non-root user for remaining setup
 # ---------------------------------------------------------------------------
-# Copy and configure the egress restriction script.
-# Remove this section if you rely on external network controls.
-COPY init-firewall.sh /usr/local/bin/init-firewall.sh
-RUN chmod +x /usr/local/bin/init-firewall.sh \
-    && echo "$USERNAME ALL=(root) NOPASSWD: /usr/local/bin/init-firewall.sh" > /etc/sudoers.d/$USERNAME-firewall \
-    && chmod 0440 /etc/sudoers.d/$USERNAME-firewall
+USER $USERNAME
+
+# ---------------------------------------------------------------------------
+# zsh with Powerlevel10k theme
+# ---------------------------------------------------------------------------
+ENV SHELL=/bin/zsh
+ENV EDITOR=nano
+ENV VISUAL=nano
+
+ARG ZSH_IN_DOCKER_VERSION=1.2.0
+RUN sh -c "$(wget -O- https://github.com/deluan/zsh-in-docker/releases/download/v${ZSH_IN_DOCKER_VERSION}/zsh-in-docker.sh)" -- \
+    -p git \
+    -p fzf \
+    -a "source /usr/share/doc/fzf/examples/key-bindings.zsh" \
+    -a "source /usr/share/doc/fzf/examples/completion.zsh" \
+    -a "export PROMPT_COMMAND='history -a' && export HISTFILE=/commandhistory/.bash_history" \
+    -x
+
+# ---------------------------------------------------------------------------
+# Install Claude Code
+# ---------------------------------------------------------------------------
+# Install globally via bun so it's available to all sessions in the container.
+RUN bun install -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}
+
+# ---------------------------------------------------------------------------
+# Startup scripts + scoped sudoers (least-privilege)
+# ---------------------------------------------------------------------------
+# Only the firewall and volume-ownership scripts can run as root.
+# This is more secure than broad NOPASSWD:ALL.
+COPY init-firewall.sh chown-volumes.sh /usr/local/bin/
+USER root
+RUN chmod +x /usr/local/bin/init-firewall.sh /usr/local/bin/chown-volumes.sh \
+    && echo "$USERNAME ALL=(root) NOPASSWD: /usr/local/bin/init-firewall.sh, /usr/local/bin/chown-volumes.sh" > /etc/sudoers.d/$USERNAME \
+    && chmod 0440 /etc/sudoers.d/$USERNAME
 
 # ---------------------------------------------------------------------------
 # Persist bash/zsh history
@@ -128,7 +170,6 @@ RUN SNIPPET="export PROMPT_COMMAND='history -a' && export HISTFILE=/commandhisto
 # Final setup
 # ---------------------------------------------------------------------------
 ENV DEVCONTAINER=true
-ENV SHELL=/bin/zsh
 
 WORKDIR /workspace
 USER $USERNAME

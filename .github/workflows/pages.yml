@@ -31,6 +31,7 @@ jobs:
           cp .devcontainer/Dockerfile _site/template/Dockerfile
           cp .devcontainer/managed-settings.json _site/template/managed-settings.json
           cp .devcontainer/init-firewall.sh _site/template/init-firewall.sh
+          cp .devcontainer/chown-volumes.sh _site/template/chown-volumes.sh
 
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3

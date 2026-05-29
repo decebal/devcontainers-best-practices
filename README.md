@@ -22,9 +22,10 @@ A hardened, production-ready dev container template that gives your team:
 ```
 .devcontainer/
   devcontainer.json       # Container config: mounts, env vars, security settings
-  Dockerfile              # Hardened image with Claude Code + non-root user
+  Dockerfile              # Hardened image with Bun + Claude Code + non-root user
   managed-settings.json   # Org policy (highest precedence, overrides user settings)
   init-firewall.sh        # Default-deny egress firewall with domain allowlist
+  chown-volumes.sh        # Fix Docker volume ownership for non-root user
 
 .claude/
   settings.json           # Project-level Claude Code permissions (deny .devcontainer access)
@@ -65,7 +66,9 @@ This template implements defence in depth with 8 security layers, drawing on pat
 | **Cap-drop ALL + selective add** | All Linux capabilities dropped, only `NET_ADMIN` and `NET_RAW` added back (for firewall). `no-new-privileges` prevents privilege escalation. | [FoamoftheSea](https://github.com/FoamoftheSea/claude-code-sandbox), [centminmod](https://github.com/centminmod/claude-code-devcontainers) |
 | **Resource limits** | `pids-limit=256`, `memory=8g` prevent fork bombs and OOM. | [FoamoftheSea](https://github.com/FoamoftheSea/claude-code-sandbox) |
 | **Network egress firewall** | Default-deny iptables. Only `api.anthropic.com`, GitHub, and configured domains reachable. | [Anthropic official](https://github.com/anthropics/claude-code/blob/main/.devcontainer/init-firewall.sh) |
-| **NPM supply chain hardening** | `NPM_CONFIG_IGNORE_SCRIPTS=true`, `NPM_CONFIG_AUDIT=true`, `NPM_CONFIG_MINIMUM_RELEASE_AGE=1440` (24h). | [trailofbits](https://github.com/trailofbits/claude-code-devcontainer) |
+| **Bun supply chain hardening** | Bun ignores lifecycle scripts by default (unlike npm). No postinstall code execution unless explicitly trusted. | [Bun docs](https://bun.sh/docs/cli/install#lifecycle-scripts), inspired by [trailofbits](https://github.com/trailofbits/claude-code-devcontainer) |
+| **Scoped sudoers** | Only firewall and volume-ownership scripts can run as root. No broad `NOPASSWD:ALL`. | Production pattern |
+| **DNS over TCP** | Firewall allows DNS on both UDP and TCP port 53. Fixes truncated response failures in Docker's embedded DNS. | Production bugfix |
 | **Managed settings** | `/etc/claude-code/managed-settings.json` enforces org policy at highest precedence. | [Anthropic docs](https://code.claude.com/docs/en/devcontainer#enforce-organization-policy) |
 | **No host secrets** | `~/.ssh`, `~/.aws`, `docker.sock` are never mounted. Use SSH agent forwarding or scoped tokens. | All community repos |
 
@@ -192,7 +195,10 @@ For a composable, language-aware approach, see [smithclay/claudetainer](https://
 | Cap-drop ALL | Yes | -- | Yes | Yes | -- |
 | no-new-privileges | Yes | -- | Yes | -- | -- |
 | Resource limits (pids, memory) | Yes | -- | Yes | -- | -- |
-| NPM supply chain hardening | Yes | Yes | -- | -- | -- |
+| Supply chain hardening (bun/npm) | Yes | Yes | -- | -- | -- |
+| Scoped sudoers (least-privilege) | Yes | -- | -- | -- | -- |
+| DNS TCP fallback fix | Yes | -- | -- | -- | -- |
+| Volume ownership fix script | Yes | -- | -- | -- | -- |
 | Managed settings | Yes | -- | -- | -- | -- |
 | Bubblewrap (bwrap) | Yes | Yes | -- | -- | -- |
 | SYS_ADMIN check/block | Yes | Yes | -- | -- | -- |

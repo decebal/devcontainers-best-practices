@@ -26,7 +26,8 @@ ALLOWED_DOMAINS=(
     "statsig.anthropic.com"
     "statsig.com"
 
-    # Package registries (add/remove as needed)
+    # Package registries
+    # Bun uses registry.npmjs.org by default for package resolution.
     "registry.npmjs.org"
     # "pypi.org"
     # "files.pythonhosted.org"
@@ -70,12 +71,17 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Base rules: DNS, SSH, localhost
+# Base rules: DNS, localhost
 # ---------------------------------------------------------------------------
+# Allow outbound DNS over UDP and TCP. Docker's embedded DNS at 127.0.0.11
+# NAT-rewrites packets to upstream resolvers, so the destination seen by the
+# OUTPUT chain is the real upstream IP, not 127.0.0.11.
+# TCP/53 is needed for truncated responses that retry over TCP.
 iptables -A OUTPUT -p udp --dport 53 -j ACCEPT
-iptables -A INPUT -p udp --sport 53 -j ACCEPT
-iptables -A OUTPUT -p tcp --dport 22 -j ACCEPT
-iptables -A INPUT -p tcp --sport 22 -m state --state ESTABLISHED -j ACCEPT
+iptables -A OUTPUT -p tcp --dport 53 -j ACCEPT
+iptables -A INPUT -p udp --sport 53 -m state --state ESTABLISHED -j ACCEPT
+iptables -A INPUT -p tcp --sport 53 -m state --state ESTABLISHED -j ACCEPT
+# Allow localhost
 iptables -A INPUT -i lo -j ACCEPT
 iptables -A OUTPUT -o lo -j ACCEPT
 
@@ -105,7 +111,7 @@ while read -r cidr; do
         echo "ERROR: Invalid CIDR range from GitHub meta: $cidr"
         exit 1
     fi
-    ipset add allowed-domains "$cidr"
+    ipset add -exist allowed-domains "$cidr"
 done < <(echo "$gh_ranges" | jq -r '(.web + .api + .git)[]' | aggregate -q)
 
 # ---------------------------------------------------------------------------
