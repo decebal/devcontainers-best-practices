@@ -1,0 +1,24 @@
+{
+  "//": "Organization-managed settings for Claude Code.",
+  "//": "This file is read from /etc/claude-code/managed-settings.json at HIGHEST precedence.",
+  "//": "Values here override user and project settings. Engineers cannot change these.",
+  "//": "See: https://code.claude.com/docs/en/settings#settings-files",
+
+  "permissions": {
+    "//": "Set to 'disable' to prevent engineers from using --dangerously-skip-permissions.",
+    "//": "Set to 'allow' if your container isolation + firewall is sufficient.",
+    "disableBypassPermissionsMode": "allow",
+
+    "//": "Default permission mode for Claude Code sessions.",
+    "//": "Options: 'default' (prompt for each action), 'auto' (classifier reviews actions).",
+    "defaultMode": "default",
+
+    "//": "Deny rules prevent Claude from reading/writing sensitive files.",
+    "deny": [
+      "Read(.env*)",
+      "Read(*.pem)",
+      "Read(*credentials*)",
+      "Read(*secret*)"
+    ]
+  }
+}

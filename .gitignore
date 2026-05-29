@@ -1,0 +1,12 @@
+# Environment files (never commit secrets)
+.env
+.env.*
+!.env.example
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+
+# OS
+.DS_Store
+Thumbs.db

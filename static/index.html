@@ -1,0 +1,743 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="slides-format" content="viewport">
+    <title>Dev Containers + Claude Code — Best Practices</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <style type="text/tailwindcss">
+        @theme {
+            --color-bg: #0a0c10;
+            --color-bg-deep: #06080c;
+            --color-surface: #111520;
+            --color-text: #e2e8f0;
+            --color-text-secondary: #94a3b8;
+            --color-text-muted: #64748b;
+            --color-accent-1: #38bdf8;
+            --color-accent-2: #818cf8;
+            --color-accent-3: #34d399;
+            --color-glass-bg: rgba(255,255,255,0.05);
+            --color-glass-border: rgba(255,255,255,0.08);
+            --color-vignette: rgba(0,0,0,0.45);
+            --font-display: 'Instrument Serif', Georgia, serif;
+            --font-body: 'Inter', system-ui, sans-serif;
+            --font-mono: 'JetBrains Mono', monospace;
+        }
+    </style>
+    <style>
+        :root {
+            --color-bg: #0a0c10;
+            --color-text: #e2e8f0;
+            --color-surface: #111520;
+            --glow-color-rgb: 56,189,248;
+        }
+        *, *::before, *::after { box-sizing: border-box; }
+        html, body { background: var(--color-bg); margin: 0; }
+        body { font-family: 'Inter', system-ui, sans-serif; color: var(--color-text); overflow: hidden; height: 100vh; width: 100vw; }
+        .deck { width: 100vw; height: 100vh; position: relative; }
+        .slide { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: var(--color-bg); display: flex; flex-direction: column; align-items: center; justify-content: center; opacity: 0; transform: scale(0.95); transition: opacity 0.7s ease, transform 0.7s ease; pointer-events: none; overflow: hidden; }
+        .slide.active { opacity: 1; transform: scale(1); pointer-events: all; }
+        .slide > .content { position: relative; z-index: 2; width: 100%; max-width: 1100px; padding: clamp(1.5rem, 4vw, 4rem); }
+        .nav-controls { position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 16px; z-index: 100; background: rgba(255,255,255,0.05); backdrop-filter: blur(10px); padding: 10px 24px; border-radius: 40px; border: 1px solid rgba(255,255,255,0.08); }
+        .nav-btn { width: 38px; height: 38px; border: none; background: rgba(255,255,255,0.06); color: #38bdf8; border-radius: 50%; font-size: 1.2rem; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background 0.3s; }
+        .nav-btn:hover { background: rgba(255,255,255,0.12); }
+        .slide-dots { display: flex; gap: 8px; }
+        .slide-dots .dot { width: 9px; height: 9px; border-radius: 50%; background: rgba(255,255,255,0.12); cursor: pointer; transition: background 0.3s, transform 0.3s; }
+        .slide-dots .dot.active { background: #38bdf8; transform: scale(1.3); }
+        .slide-counter { font-size: 0.78rem; color: #64748b; min-width: 40px; text-align: center; font-family: 'JetBrains Mono', monospace; }
+        .reveal { opacity: 0; transform: translateY(20px); }
+
+        .text-glow { text-shadow: 0 0 20px rgba(56,189,248,0.5), 0 0 40px rgba(56,189,248,0.2); }
+        .stat-glow { text-shadow: 0 0 30px rgba(56,189,248,0.6), 0 0 60px rgba(56,189,248,0.25); }
+        @keyframes glow-pulse {
+            0%,100% { text-shadow: 0 0 20px rgba(56,189,248,0.5), 0 0 40px rgba(56,189,248,0.2); }
+            50% { text-shadow: 0 0 30px rgba(56,189,248,0.9), 0 0 60px rgba(56,189,248,0.4); }
+        }
+        .glow-pulse { animation: glow-pulse 2.5s ease-in-out infinite; }
+
+        @keyframes float-slow { 0%{transform:translate(0,0) scale(1)}25%{transform:translate(60px,-50px) scale(1.12)}50%{transform:translate(-40px,40px) scale(0.9)}75%{transform:translate(50px,20px) scale(1.08)}100%{transform:translate(0,0) scale(1)} }
+        @keyframes float-drift { 0%{transform:translate(0,0) scale(1) rotate(0deg)}33%{transform:translate(-50px,-60px) scale(1.15) rotate(3deg)}66%{transform:translate(40px,30px) scale(0.88) rotate(-2deg)}100%{transform:translate(0,0) scale(1) rotate(0deg)} }
+        @keyframes float { 0%,100%{transform:translateY(0)}50%{transform:translateY(-14px)} }
+        .gradient-mesh { position: absolute; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; }
+        .blob { position: absolute; border-radius: 50%; filter: blur(80px); animation: float-slow 10s ease-in-out infinite; }
+        .blob:nth-child(2) { animation: float-drift 14s ease-in-out infinite; }
+        .blob:nth-child(3) { animation: float-slow 18s ease-in-out infinite reverse; }
+
+        .slide::before { content:'';position:absolute;inset:0;z-index:1;pointer-events:none;background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 512 512' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.7' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");background-repeat:repeat;background-size:256px 256px;opacity:0.03;mix-blend-mode:overlay; }
+        .slide::after { content:'';position:absolute;inset:0;z-index:1;pointer-events:none;background:radial-gradient(ellipse at center, transparent 50%, var(--color-vignette) 100%); }
+
+        .bar-fill { border-radius: 4px; height: 100%; }
+
+        .code-block { background: rgba(0,0,0,0.5); border: 1px solid rgba(56,189,248,0.15); border-left: 3px solid #38bdf8; border-radius: 8px; padding: 1rem 1.2rem; font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; color: #94a3b8; line-height: 1.6; overflow-x: auto; }
+        .code-block .kw { color: #38bdf8; }
+        .code-block .str { color: #34d399; }
+        .code-block .comment { color: #475569; }
+
+        .badge { display: inline-flex; align-items: center; gap: 0.35rem; background: rgba(56,189,248,0.1); border: 1px solid rgba(56,189,248,0.2); border-radius: 100px; padding: 0.2rem 0.7rem; font-size: 0.72rem; color: #38bdf8; font-family: 'JetBrains Mono', monospace; letter-spacing: 0.03em; font-weight: 500; }
+        .badge-green { background: rgba(52,211,153,0.1); border-color: rgba(52,211,153,0.2); color: #34d399; }
+        .badge-purple { background: rgba(129,140,248,0.1); border-color: rgba(129,140,248,0.2); color: #818cf8; }
+        .badge-orange { background: rgba(251,146,60,0.1); border-color: rgba(251,146,60,0.2); color: #fb923c; }
+        .badge-red { background: rgba(248,113,113,0.1); border-color: rgba(248,113,113,0.2); color: #f87171; }
+
+        @media (prefers-reduced-motion: reduce) { *,*::before,*::after { animation-duration: 0.01ms !important; transition-duration: 0.2s !important; } }
+    </style>
+</head>
+<body>
+<div class="mouse-spotlight" style="position:fixed;inset:0;z-index:99;pointer-events:none;"></div>
+
+<div class="deck">
+
+    <!-- ================================================================== -->
+    <!-- SLIDE 1: TITLE                                                      -->
+    <!-- ================================================================== -->
+    <div class="slide active" data-slide="1">
+        <div class="gradient-mesh">
+            <div class="blob" style="width:520px;height:520px;top:-120px;right:-80px;background:#38bdf8;opacity:0.12;"></div>
+            <div class="blob" style="width:320px;height:320px;bottom:-100px;left:-60px;background:#818cf8;opacity:0.10;"></div>
+            <div class="blob" style="width:200px;height:200px;top:45%;left:10%;background:#34d399;opacity:0.08;"></div>
+        </div>
+        <canvas class="particle-canvas" style="position:absolute;inset:0;z-index:1;"></canvas>
+        <div class="content text-center">
+            <div style="font-size:90px;margin-bottom:1.2rem;animation:float 3s ease-in-out infinite;" class="reveal">&#x1F4E6;</div>
+            <div class="flex justify-center gap-2 mb-4 reveal">
+                <span class="badge">devcontainers</span>
+                <span class="badge-green badge">Claude Code</span>
+                <span class="badge-purple badge">Security</span>
+            </div>
+            <h1 class="reveal" style="font-family:'Instrument Serif',serif;font-size:clamp(2.6rem,5.5vw,4.4rem);font-weight:700;background:linear-gradient(135deg,#38bdf8,#818cf8,#34d399);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;letter-spacing:-0.02em;margin-bottom:1rem;">Dev Containers,<br>Done Right</h1>
+            <p class="reveal" style="color:#64748b;font-size:clamp(0.85rem,1.3vw,1.1rem);letter-spacing:0.18em;text-transform:uppercase;font-weight:500;">Consistent &middot; Secure &middot; Instantly Adoptable</p>
+        </div>
+    </div>
+
+    <!-- ================================================================== -->
+    <!-- SLIDE 2: THE PROBLEM                                                -->
+    <!-- ================================================================== -->
+    <div class="slide" data-slide="2">
+        <div class="gradient-mesh">
+            <div class="blob" style="width:380px;height:380px;top:-80px;right:-60px;background:#f87171;opacity:0.08;"></div>
+            <div class="blob" style="width:240px;height:240px;bottom:-60px;left:-40px;background:#818cf8;opacity:0.06;"></div>
+        </div>
+        <div class="content">
+            <div class="reveal" style="margin-bottom:0.6rem;">
+                <span class="badge-red badge">The Problem</span>
+            </div>
+            <h2 class="reveal" style="font-family:'Instrument Serif',serif;font-size:clamp(2rem,4vw,2.8rem);font-weight:700;margin-bottom:1.4rem;">Why This Matters <em style="color:#f87171;">Now</em></h2>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1rem;">
+                <div class="reveal" style="background:rgba(248,113,113,0.05);border:1px solid rgba(248,113,113,0.12);border-radius:12px;padding:1.2rem;">
+                    <div style="font-size:2rem;margin-bottom:0.6rem;">&#x1F6A8;</div>
+                    <div style="font-weight:700;font-size:0.95rem;color:#f87171;margin-bottom:0.4rem;">"Works on my machine"</div>
+                    <div style="color:#64748b;font-size:0.82rem;line-height:1.5;">Different Node/Python/Rust versions, missing tools, broken builds &mdash; still happening in 2026</div>
+                </div>
+                <div class="reveal" style="background:rgba(251,146,60,0.05);border:1px solid rgba(251,146,60,0.12);border-radius:12px;padding:1.2rem;">
+                    <div style="font-size:2rem;margin-bottom:0.6rem;">&#x23F3;</div>
+                    <div style="font-weight:700;font-size:0.95rem;color:#fb923c;margin-bottom:0.4rem;">Onboarding takes days</div>
+                    <div style="color:#64748b;font-size:0.82rem;line-height:1.5;">New engineers spend their first week installing things instead of shipping code</div>
+                </div>
+                <div class="reveal" style="background:rgba(248,113,113,0.05);border:1px solid rgba(248,113,113,0.12);border-radius:12px;padding:1.2rem;">
+                    <div style="font-size:2rem;margin-bottom:0.6rem;">&#x26A0;&#xFE0F;</div>
+                    <div style="font-weight:700;font-size:0.95rem;color:#f87171;margin-bottom:0.4rem;">AI agents on bare metal</div>
+                    <div style="color:#64748b;font-size:0.82rem;line-height:1.5;">Claude Code running directly on host can modify system files, access secrets, reach arbitrary endpoints</div>
+                </div>
+            </div>
+            <div class="reveal" style="margin-top:1.2rem;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:10px;padding:0.9rem 1.2rem;text-align:center;">
+                <span style="color:#94a3b8;font-size:0.88rem;">Dev containers solve all three with <strong style="color:#38bdf8;">a single folder</strong> committed to your repo</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================================================================== -->
+    <!-- SLIDE 3: THREE PILLARS                                              -->
+    <!-- ================================================================== -->
+    <div class="slide" data-slide="3">
+        <div class="gradient-mesh">
+            <div class="blob" style="width:400px;height:400px;top:-100px;left:-80px;background:#818cf8;opacity:0.09;"></div>
+            <div class="blob" style="width:260px;height:260px;bottom:-60px;right:-40px;background:#34d399;opacity:0.07;"></div>
+        </div>
+        <div class="content">
+            <div class="reveal" style="margin-bottom:0.6rem;"><span class="badge">Core Benefits</span></div>
+            <h2 class="reveal" style="font-family:'Instrument Serif',serif;font-size:clamp(1.9rem,3.8vw,2.7rem);font-weight:700;margin-bottom:1.6rem;">Three Problems, One Config Folder</h2>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1rem;">
+                <div class="reveal" style="background:rgba(56,189,248,0.05);border:1px solid rgba(56,189,248,0.12);border-radius:12px;padding:1.4rem;">
+                    <div style="font-size:2rem;margin-bottom:0.7rem;">&#x1F501;</div>
+                    <div style="font-weight:700;font-size:1rem;color:#38bdf8;margin-bottom:0.5rem;">Shared Best Practices</div>
+                    <div style="color:#94a3b8;font-size:0.83rem;line-height:1.6;">Claude Code config, CLAUDE.md instructions, MCP servers, slash commands &mdash; codify once, every dev gets them on container start</div>
+                </div>
+                <div class="reveal" style="background:rgba(52,211,153,0.05);border:1px solid rgba(52,211,153,0.12);border-radius:12px;padding:1.4rem;">
+                    <div style="font-size:2rem;margin-bottom:0.7rem;">&#x1F6E1;&#xFE0F;</div>
+                    <div style="font-weight:700;font-size:1rem;color:#34d399;margin-bottom:0.5rem;">Security &amp; Isolation</div>
+                    <div style="color:#94a3b8;font-size:0.83rem;line-height:1.6;">Container boundaries prevent host writes. Managed settings enforce policy. Egress firewall blocks data exfiltration</div>
+                </div>
+                <div class="reveal" style="background:rgba(129,140,248,0.05);border:1px solid rgba(129,140,248,0.12);border-radius:12px;padding:1.4rem;">
+                    <div style="font-size:2rem;margin-bottom:0.7rem;">&#x26A1;</div>
+                    <div style="font-weight:700;font-size:1rem;color:#818cf8;margin-bottom:0.5rem;">Ease of Adoption</div>
+                    <div style="color:#94a3b8;font-size:0.83rem;line-height:1.6;"><code style="font-family:'JetBrains Mono',monospace;font-size:0.78rem;color:#818cf8;">git clone</code> &rarr; "Reopen in Container" &rarr; coding in under 5 minutes. Mac, Windows, Linux, Codespaces</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================================================================== -->
+    <!-- SLIDE 4: ARCHITECTURE DIAGRAM                                       -->
+    <!-- ================================================================== -->
+    <div class="slide" data-slide="4">
+        <div class="gradient-mesh">
+            <div class="blob" style="width:380px;height:380px;top:-90px;right:-60px;background:#38bdf8;opacity:0.08;"></div>
+            <div class="blob" style="width:260px;height:260px;bottom:-60px;left:-40px;background:#34d399;opacity:0.07;"></div>
+        </div>
+        <div class="content">
+            <div class="reveal" style="margin-bottom:0.6rem;"><span class="badge-green badge">Architecture</span></div>
+            <h2 class="reveal" style="font-family:'Instrument Serif',serif;font-size:clamp(1.9rem,3.8vw,2.7rem);font-weight:700;margin-bottom:1.4rem;">How It Works</h2>
+            <div class="reveal" style="display:grid;grid-template-columns:1fr auto 1fr;gap:1.5rem;align-items:center;">
+                <!-- Host side -->
+                <div style="background:rgba(56,189,248,0.05);border:1px solid rgba(56,189,248,0.14);border-radius:12px;padding:1.4rem;">
+                    <div style="color:#38bdf8;font-weight:700;font-size:0.9rem;margin-bottom:0.8rem;font-family:'JetBrains Mono',monospace;">&#x1F4BB; HOST MACHINE</div>
+                    <div style="display:flex;flex-direction:column;gap:0.5rem;">
+                        <div style="font-size:0.8rem;color:#94a3b8;padding:0.4rem 0.6rem;background:rgba(255,255,255,0.04);border-radius:6px;">VS Code / Cursor / JetBrains</div>
+                        <div style="font-size:0.8rem;color:#94a3b8;padding:0.4rem 0.6rem;background:rgba(255,255,255,0.04);border-radius:6px;">~/Projects/myapp <span style="color:#64748b;">(bind mount)</span></div>
+                        <div style="font-size:0.8rem;color:#f87171;padding:0.4rem 0.6rem;background:rgba(248,113,113,0.06);border:1px solid rgba(248,113,113,0.12);border-radius:6px;">&#x1F6AB; ~/.ssh, ~/.aws NOT mounted</div>
+                    </div>
+                </div>
+                <!-- Arrow -->
+                <div style="display:flex;flex-direction:column;align-items:center;gap:0.4rem;">
+                    <div style="font-size:1.6rem;color:#38bdf8;">&#x27A1;&#xFE0F;</div>
+                    <div style="font-size:0.65rem;color:#64748b;font-family:'JetBrains Mono',monospace;">SSH tunnel</div>
+                </div>
+                <!-- Container side -->
+                <div style="background:rgba(52,211,153,0.05);border:1px solid rgba(52,211,153,0.14);border-radius:12px;padding:1.4rem;">
+                    <div style="color:#34d399;font-weight:700;font-size:0.9rem;margin-bottom:0.8rem;font-family:'JetBrains Mono',monospace;">&#x1F4E6; DEV CONTAINER</div>
+                    <div style="display:flex;flex-direction:column;gap:0.5rem;">
+                        <div style="font-size:0.8rem;color:#94a3b8;padding:0.4rem 0.6rem;background:rgba(255,255,255,0.04);border-radius:6px;">Claude Code + tools</div>
+                        <div style="font-size:0.8rem;color:#94a3b8;padding:0.4rem 0.6rem;background:rgba(255,255,255,0.04);border-radius:6px;">Non-root user: <span style="color:#34d399;font-family:'JetBrains Mono',monospace;">developer</span></div>
+                        <div style="font-size:0.8rem;color:#94a3b8;padding:0.4rem 0.6rem;background:rgba(255,255,255,0.04);border-radius:6px;">Egress firewall (default-deny)</div>
+                        <div style="font-size:0.8rem;color:#94a3b8;padding:0.4rem 0.6rem;background:rgba(255,255,255,0.04);border-radius:6px;">Managed settings (enforced)</div>
+                        <div style="font-size:0.8rem;color:#94a3b8;padding:0.4rem 0.6rem;background:rgba(255,255,255,0.04);border-radius:6px;">/workspace <span style="color:#64748b;">(only writable dir)</span></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================================================================== -->
+    <!-- SLIDE 5: SECURITY LAYERS (Defence in Depth)                         -->
+    <!-- ================================================================== -->
+    <div class="slide" data-slide="5">
+        <div class="gradient-mesh">
+            <div class="blob" style="width:420px;height:420px;top:-100px;right:-60px;background:#34d399;opacity:0.09;"></div>
+            <div class="blob" style="width:260px;height:260px;bottom:-60px;left:-40px;background:#38bdf8;opacity:0.07;"></div>
+        </div>
+        <div class="content">
+            <div class="reveal" style="margin-bottom:0.6rem;"><span class="badge-green badge">Security Model</span></div>
+            <h2 class="reveal" style="font-family:'Instrument Serif',serif;font-size:clamp(1.9rem,3.8vw,2.7rem);font-weight:700;margin-bottom:1.2rem;">Defence in Depth &mdash; 5 Layers</h2>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.8rem;align-items:start;">
+                <div>
+                    <div class="reveal" style="margin-bottom:0.6rem;">
+                        <div style="display:flex;gap:0.7rem;align-items:flex-start;border-left:3px solid #34d399;padding:0.7rem 0.9rem;background:rgba(52,211,153,0.04);border-radius:0 8px 8px 0;">
+                            <span style="font-family:'JetBrains Mono',monospace;font-size:0.8rem;color:#34d399;font-weight:700;flex-shrink:0;">L1</span>
+                            <div>
+                                <div style="font-weight:600;font-size:0.85rem;margin-bottom:0.15rem;">Filesystem Sandboxing</div>
+                                <div style="color:#64748b;font-size:0.76rem;line-height:1.5;">Only <code style="font-family:'JetBrains Mono',monospace;font-size:0.7rem;color:#94a3b8;">/workspace</code> is bind-mounted. Claude cannot touch host system files, other projects, or home configs</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="reveal" style="margin-bottom:0.6rem;">
+                        <div style="display:flex;gap:0.7rem;align-items:flex-start;border-left:3px solid #38bdf8;padding:0.7rem 0.9rem;background:rgba(56,189,248,0.04);border-radius:0 8px 8px 0;">
+                            <span style="font-family:'JetBrains Mono',monospace;font-size:0.8rem;color:#38bdf8;font-weight:700;flex-shrink:0;">L2</span>
+                            <div>
+                                <div style="font-weight:600;font-size:0.85rem;margin-bottom:0.15rem;">Non-Root Execution</div>
+                                <div style="color:#64748b;font-size:0.76rem;line-height:1.5;"><code style="font-family:'JetBrains Mono',monospace;font-size:0.7rem;color:#94a3b8;">remoteUser: "developer"</code> &mdash; Claude Code rejects <code style="font-family:'JetBrains Mono',monospace;font-size:0.7rem;color:#94a3b8;">--dangerously-skip-permissions</code> when run as root</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="reveal" style="margin-bottom:0.6rem;">
+                        <div style="display:flex;gap:0.7rem;align-items:flex-start;border-left:3px solid #818cf8;padding:0.7rem 0.9rem;background:rgba(129,140,248,0.04);border-radius:0 8px 8px 0;">
+                            <span style="font-family:'JetBrains Mono',monospace;font-size:0.8rem;color:#818cf8;font-weight:700;flex-shrink:0;">L3</span>
+                            <div>
+                                <div style="font-weight:600;font-size:0.85rem;margin-bottom:0.15rem;">Network Egress Firewall</div>
+                                <div style="color:#64748b;font-size:0.76rem;line-height:1.5;">Default-deny iptables. Only <code style="font-family:'JetBrains Mono',monospace;font-size:0.7rem;color:#94a3b8;">api.anthropic.com</code>, GitHub, npm &mdash; prevents data exfiltration</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div>
+                    <div class="reveal" style="margin-bottom:0.6rem;">
+                        <div style="display:flex;gap:0.7rem;align-items:flex-start;border-left:3px solid #fb923c;padding:0.7rem 0.9rem;background:rgba(251,146,60,0.04);border-radius:0 8px 8px 0;">
+                            <span style="font-family:'JetBrains Mono',monospace;font-size:0.8rem;color:#fb923c;font-weight:700;flex-shrink:0;">L4</span>
+                            <div>
+                                <div style="font-weight:600;font-size:0.85rem;margin-bottom:0.15rem;">Managed Settings (Highest Precedence)</div>
+                                <div style="color:#64748b;font-size:0.76rem;line-height:1.5;"><code style="font-family:'JetBrains Mono',monospace;font-size:0.7rem;color:#94a3b8;">/etc/claude-code/managed-settings.json</code> overrides ALL user settings. Deny <code style="font-family:'JetBrains Mono',monospace;font-size:0.7rem;color:#94a3b8;">.env*</code>, <code style="font-family:'JetBrains Mono',monospace;font-size:0.7rem;color:#94a3b8;">*.pem</code>, credentials</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="reveal" style="margin-bottom:0.6rem;">
+                        <div style="display:flex;gap:0.7rem;align-items:flex-start;border-left:3px solid #f87171;padding:0.7rem 0.9rem;background:rgba(248,113,113,0.04);border-radius:0 8px 8px 0;">
+                            <span style="font-family:'JetBrains Mono',monospace;font-size:0.8rem;color:#f87171;font-weight:700;flex-shrink:0;">L5</span>
+                            <div>
+                                <div style="font-weight:600;font-size:0.85rem;margin-bottom:0.15rem;">Secret Hygiene</div>
+                                <div style="color:#64748b;font-size:0.76rem;line-height:1.5;">Never mount <code style="font-family:'JetBrains Mono',monospace;font-size:0.7rem;color:#94a3b8;">~/.ssh</code>, <code style="font-family:'JetBrains Mono',monospace;font-size:0.7rem;color:#94a3b8;">~/.aws</code>. Use SSH agent forwarding or repo-scoped tokens instead</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="reveal">
+                        <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:8px;padding:0.7rem 0.9rem;font-size:0.76rem;color:#64748b;line-height:1.5;">
+                            <strong style="color:#94a3b8;">Even with <code style="font-family:'JetBrains Mono',monospace;font-size:0.7rem;color:#fb923c;">--dangerously-skip-permissions</code></strong>, the blast radius is limited to the container + workspace bind mount
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================================================================== -->
+    <!-- SLIDE 6: WASM SANDBOX — NEXT-LEVEL ISOLATION                        -->
+    <!-- ================================================================== -->
+    <div class="slide" data-slide="6">
+        <div class="gradient-mesh">
+            <div class="blob" style="width:400px;height:400px;top:-90px;left:-60px;background:#a78bfa;opacity:0.09;"></div>
+            <div class="blob" style="width:280px;height:280px;bottom:-70px;right:-50px;background:#38bdf8;opacity:0.07;"></div>
+        </div>
+        <div class="content">
+            <div class="reveal" style="margin-bottom:0.6rem;"><span class="badge-purple badge">Advanced</span></div>
+            <h2 class="reveal" style="font-family:'Instrument Serif',serif;font-size:clamp(1.9rem,3.8vw,2.7rem);font-weight:700;margin-bottom:0.5rem;">WASM Sandboxing &mdash; Beyond Containers</h2>
+            <p class="reveal" style="color:#94a3b8;font-size:0.88rem;margin-bottom:1.4rem;max-width:720px;">WebAssembly provides a <strong style="color:#a78bfa;">capability-based security model</strong> that complements container isolation. Consider WASM for build tools and untrusted code execution inside your dev container.</p>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.2rem;">
+                <div>
+                    <div class="reveal" style="margin-bottom:0.8rem;">
+                        <div style="background:rgba(167,139,250,0.06);border:1px solid rgba(167,139,250,0.14);border-radius:8px;padding:0.9rem 1rem;">
+                            <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.35rem;">
+                                <span style="color:#a78bfa;font-weight:600;font-size:0.85rem;">Capability-Based Security</span>
+                            </div>
+                            <div style="color:#64748b;font-size:0.78rem;line-height:1.5;">WASM modules have <strong style="color:#94a3b8;">zero ambient authority</strong>. No filesystem, network, or env var access unless explicitly granted via WASI. A WASM-compiled linter can read your source but physically cannot phone home</div>
+                        </div>
+                    </div>
+                    <div class="reveal" style="margin-bottom:0.8rem;">
+                        <div style="background:rgba(56,189,248,0.06);border:1px solid rgba(56,189,248,0.14);border-radius:8px;padding:0.9rem 1rem;">
+                            <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.35rem;">
+                                <span style="color:#38bdf8;font-weight:600;font-size:0.85rem;">Deterministic Builds</span>
+                            </div>
+                            <div style="color:#64748b;font-size:0.78rem;line-height:1.5;">WASM binaries are platform-independent. Same binary runs on macOS ARM, Linux x86, Windows &mdash; no cross-compile matrix needed in your devcontainer</div>
+                        </div>
+                    </div>
+                    <div class="reveal">
+                        <div style="background:rgba(52,211,153,0.06);border:1px solid rgba(52,211,153,0.14);border-radius:8px;padding:0.9rem 1rem;">
+                            <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.35rem;">
+                                <span style="color:#34d399;font-weight:600;font-size:0.85rem;">Instant Startup</span>
+                            </div>
+                            <div style="color:#64748b;font-size:0.78rem;line-height:1.5;">WASM modules cold-start in milliseconds vs seconds for containers. Ideal for ephemeral tool execution triggered by Claude Code</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="reveal">
+                    <div style="font-size:0.75rem;color:#64748b;font-family:'JetBrains Mono',monospace;margin-bottom:0.5rem;">Use cases inside dev containers</div>
+                    <div style="display:flex;flex-direction:column;gap:0.6rem;">
+                        <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:8px;padding:0.8rem;display:flex;gap:0.6rem;align-items:flex-start;">
+                            <span style="font-size:1.2rem;">&#x1F50D;</span>
+                            <div>
+                                <div style="font-weight:600;font-size:0.82rem;margin-bottom:0.15rem;">Sandboxed linters &amp; formatters</div>
+                                <div style="color:#64748b;font-size:0.75rem;">Run untrusted linter plugins in WASM &mdash; they can read source but can't access network or filesystem beyond what you grant</div>
+                            </div>
+                        </div>
+                        <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:8px;padding:0.8rem;display:flex;gap:0.6rem;align-items:flex-start;">
+                            <span style="font-size:1.2rem;">&#x1F9EA;</span>
+                            <div>
+                                <div style="font-weight:600;font-size:0.82rem;margin-bottom:0.15rem;">Untrusted code execution</div>
+                                <div style="color:#64748b;font-size:0.75rem;">Claude generates code &rarr; compile to WASM &rarr; test in sandbox &mdash; no container escape risk even if code is malicious</div>
+                            </div>
+                        </div>
+                        <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:8px;padding:0.8rem;display:flex;gap:0.6rem;align-items:flex-start;">
+                            <span style="font-size:1.2rem;">&#x1F4E6;</span>
+                            <div>
+                                <div style="font-weight:600;font-size:0.82rem;margin-bottom:0.15rem;">Supply chain defence</div>
+                                <div style="color:#64748b;font-size:0.75rem;">Run npm/cargo build scripts in WASM to prevent compromised packages from executing arbitrary host commands</div>
+                            </div>
+                        </div>
+                        <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:8px;padding:0.8rem;display:flex;gap:0.6rem;align-items:flex-start;">
+                            <span style="font-size:1.2rem;">&#x1F310;</span>
+                            <div>
+                                <div style="font-weight:600;font-size:0.82rem;margin-bottom:0.15rem;">Cross-platform MCP servers</div>
+                                <div style="color:#64748b;font-size:0.75rem;">WASM-compiled MCP servers run identically on every platform &mdash; no per-OS binary builds</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================================================================== -->
+    <!-- SLIDE 7: THE TEMPLATE (what's in the repo)                          -->
+    <!-- ================================================================== -->
+    <div class="slide" data-slide="7">
+        <div class="gradient-mesh">
+            <div class="blob" style="width:350px;height:350px;top:-80px;right:-60px;background:#38bdf8;opacity:0.08;"></div>
+            <div class="blob" style="width:220px;height:220px;bottom:-50px;left:-40px;background:#34d399;opacity:0.06;"></div>
+        </div>
+        <div class="content">
+            <div class="reveal" style="margin-bottom:0.6rem;"><span class="badge">The Template</span></div>
+            <h2 class="reveal" style="font-family:'Instrument Serif',serif;font-size:clamp(1.9rem,3.8vw,2.7rem);font-weight:700;margin-bottom:0.5rem;">What You Get</h2>
+            <p class="reveal" style="color:#94a3b8;font-size:0.88rem;margin-bottom:1.2rem;">Copy <code style="font-family:'JetBrains Mono',monospace;font-size:0.82rem;color:#38bdf8;">.devcontainer/</code> into your repo. Four files, fully commented.</p>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">
+                <div class="reveal">
+                    <div style="font-size:0.75rem;color:#64748b;font-family:'JetBrains Mono',monospace;margin-bottom:0.5rem;">.devcontainer/</div>
+                    <div style="display:flex;flex-direction:column;gap:0.5rem;">
+                        <div style="display:flex;align-items:center;gap:0.7rem;background:rgba(56,189,248,0.06);border:1px solid rgba(56,189,248,0.12);border-radius:8px;padding:0.7rem 0.9rem;">
+                            <span style="color:#38bdf8;font-family:'JetBrains Mono',monospace;font-size:0.78rem;font-weight:600;min-width:170px;">devcontainer.json</span>
+                            <span style="color:#64748b;font-size:0.75rem;">Mounts, env vars, firewall, non-root user</span>
+                        </div>
+                        <div style="display:flex;align-items:center;gap:0.7rem;background:rgba(52,211,153,0.06);border:1px solid rgba(52,211,153,0.12);border-radius:8px;padding:0.7rem 0.9rem;">
+                            <span style="color:#34d399;font-family:'JetBrains Mono',monospace;font-size:0.78rem;font-weight:600;min-width:170px;">Dockerfile</span>
+                            <span style="color:#64748b;font-size:0.75rem;">Hardened image + Claude Code install</span>
+                        </div>
+                        <div style="display:flex;align-items:center;gap:0.7rem;background:rgba(129,140,248,0.06);border:1px solid rgba(129,140,248,0.12);border-radius:8px;padding:0.7rem 0.9rem;">
+                            <span style="color:#818cf8;font-family:'JetBrains Mono',monospace;font-size:0.78rem;font-weight:600;min-width:170px;">managed-settings.json</span>
+                            <span style="color:#64748b;font-size:0.75rem;">Org policy (overrides user settings)</span>
+                        </div>
+                        <div style="display:flex;align-items:center;gap:0.7rem;background:rgba(251,146,60,0.06);border:1px solid rgba(251,146,60,0.12);border-radius:8px;padding:0.7rem 0.9rem;">
+                            <span style="color:#fb923c;font-family:'JetBrains Mono',monospace;font-size:0.78rem;font-weight:600;min-width:170px;">init-firewall.sh</span>
+                            <span style="color:#64748b;font-size:0.75rem;">Default-deny egress + domain allowlist</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="reveal">
+                    <div style="font-size:0.75rem;color:#64748b;font-family:'JetBrains Mono',monospace;margin-bottom:0.5rem;">Key security highlights</div>
+                    <div class="code-block" style="font-size:0.72rem;">
+<span class="comment">// devcontainer.json</span><br>
+<span class="kw">"remoteUser"</span>: <span class="str">"developer"</span>,<br>
+<span class="kw">"workspaceMount"</span>: <span class="str">"source=...,target=/workspace,type=bind"</span>,<br><br>
+<span class="comment">// Dockerfile</span><br>
+COPY managed-settings.json <span class="str">/etc/claude-code/</span><br><br>
+<span class="comment">// managed-settings.json</span><br>
+<span class="kw">"deny"</span>: [<span class="str">"Read(.env*)"</span>, <span class="str">"Read(*.pem)"</span>],<br><br>
+<span class="comment">// init-firewall.sh</span><br>
+iptables -P OUTPUT <span class="kw">DROP</span><br>
+iptables -A OUTPUT -m set<br>
+&nbsp;&nbsp;--match-set <span class="str">allowed-domains</span> dst -j <span class="kw">ACCEPT</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================================================================== -->
+    <!-- SLIDE 8: SHARING BEST PRACTICES                                     -->
+    <!-- ================================================================== -->
+    <div class="slide" data-slide="8">
+        <div class="gradient-mesh">
+            <div class="blob" style="width:400px;height:400px;top:-80px;left:-60px;background:#38bdf8;opacity:0.08;"></div>
+            <div class="blob" style="width:250px;height:250px;bottom:-60px;right:-40px;background:#818cf8;opacity:0.07;"></div>
+        </div>
+        <div class="content">
+            <div class="reveal" style="margin-bottom:0.6rem;"><span class="badge-green badge">Best Practices Distribution</span></div>
+            <h2 class="reveal" style="font-family:'Instrument Serif',serif;font-size:clamp(1.9rem,3.8vw,2.7rem);font-weight:700;margin-bottom:1.2rem;">Scaling "How We Use Claude"</h2>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.2rem;">
+                <div class="reveal">
+                    <div style="font-size:0.75rem;color:#64748b;font-family:'JetBrains Mono',monospace;margin-bottom:0.5rem;">What gets committed to the repo</div>
+                    <div class="code-block" style="font-size:0.73rem;">
+<span class="str">.devcontainer/</span><br>
+&nbsp;&nbsp;devcontainer.json&nbsp;&nbsp;&nbsp;<span class="comment"># env + tools</span><br>
+&nbsp;&nbsp;Dockerfile&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="comment"># image + policy</span><br>
+&nbsp;&nbsp;managed-settings.json<span class="comment"># org rules</span><br>
+&nbsp;&nbsp;init-firewall.sh&nbsp;&nbsp;&nbsp;<span class="comment"># network</span><br><br>
+<span class="str">CLAUDE.md</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="comment"># team prompts</span><br>
+<span class="str">.mcp.json</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="comment"># MCP servers</span><br>
+<span class="str">.claude/commands/</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="comment"># slash cmds</span><br>
+&nbsp;&nbsp;review.md<br>
+&nbsp;&nbsp;audit.md<br>
+&nbsp;&nbsp;deploy-checklist.md
+                    </div>
+                </div>
+                <div>
+                    <div class="reveal" style="margin-bottom:0.7rem;">
+                        <div style="display:flex;gap:0.7rem;align-items:flex-start;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:8px;padding:0.8rem;">
+                            <span style="font-size:1.3rem;flex-shrink:0;">&#x1F4CB;</span>
+                            <div>
+                                <div style="font-weight:600;font-size:0.85rem;margin-bottom:0.15rem;">CLAUDE.md = team instructions</div>
+                                <div style="color:#64748b;font-size:0.76rem;line-height:1.5;">Claude Code reads this automatically. Code style, restricted paths, approved tools, PR conventions &mdash; consistent for every session</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="reveal" style="margin-bottom:0.7rem;">
+                        <div style="display:flex;gap:0.7rem;align-items:flex-start;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:8px;padding:0.8rem;">
+                            <span style="font-size:1.3rem;flex-shrink:0;">&#x1F527;</span>
+                            <div>
+                                <div style="font-weight:600;font-size:0.85rem;margin-bottom:0.15rem;">.mcp.json = shared tool servers</div>
+                                <div style="color:#64748b;font-size:0.76rem;line-height:1.5;">MCP servers defined at project scope. Binaries installed in the Dockerfile &mdash; everyone gets the same tools</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="reveal" style="margin-bottom:0.7rem;">
+                        <div style="display:flex;gap:0.7rem;align-items:flex-start;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:8px;padding:0.8rem;">
+                            <span style="font-size:1.3rem;flex-shrink:0;">&#x1F3D7;&#xFE0F;</span>
+                            <div>
+                                <div style="font-weight:600;font-size:0.85rem;margin-bottom:0.15rem;">.claude/commands/ = team workflows</div>
+                                <div style="color:#64748b;font-size:0.76rem;line-height:1.5;">Custom slash commands for review, audit, deploy checklists &mdash; version-controlled alongside code</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="reveal">
+                        <div style="background:rgba(52,211,153,0.06);border:1px solid rgba(52,211,153,0.12);border-radius:8px;padding:0.7rem 0.9rem;font-size:0.78rem;color:#34d399;text-align:center;font-weight:600;">
+                            Commit once &rarr; every engineer gets it &rarr; forever
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================================================================== -->
+    <!-- SLIDE 9: SECURITY COMPARISON TABLE                                  -->
+    <!-- ================================================================== -->
+    <div class="slide" data-slide="9">
+        <div class="gradient-mesh">
+            <div class="blob" style="width:380px;height:380px;top:-80px;right:-60px;background:#f87171;opacity:0.07;"></div>
+            <div class="blob" style="width:260px;height:260px;bottom:-60px;left:-40px;background:#34d399;opacity:0.07;"></div>
+        </div>
+        <div class="content">
+            <div class="reveal" style="margin-bottom:0.6rem;"><span class="badge-red badge">Security Comparison</span></div>
+            <h2 class="reveal" style="font-family:'Instrument Serif',serif;font-size:clamp(1.9rem,3.8vw,2.7rem);font-weight:700;margin-bottom:1.4rem;">Bare Metal vs Dev Container vs WASM</h2>
+            <div class="reveal" style="overflow-x:auto;">
+                <table style="width:100%;border-collapse:separate;border-spacing:0;font-size:0.8rem;">
+                    <thead>
+                        <tr>
+                            <th style="text-align:left;padding:0.7rem 1rem;color:#64748b;font-weight:500;border-bottom:1px solid rgba(255,255,255,0.08);width:28%;">Threat</th>
+                            <th style="text-align:center;padding:0.7rem 0.8rem;color:#f87171;font-weight:600;border-bottom:1px solid rgba(255,255,255,0.08);width:24%;">Bare Metal</th>
+                            <th style="text-align:center;padding:0.7rem 0.8rem;color:#34d399;font-weight:600;border-bottom:1px solid rgba(255,255,255,0.08);width:24%;">Dev Container</th>
+                            <th style="text-align:center;padding:0.7rem 0.8rem;color:#a78bfa;font-weight:600;border-bottom:1px solid rgba(255,255,255,0.08);width:24%;">+ WASM</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr style="background:rgba(255,255,255,0.02);">
+                            <td style="padding:0.6rem 1rem;color:#94a3b8;">Host file modification</td>
+                            <td style="padding:0.6rem 0.8rem;text-align:center;color:#f87171;">&#x274C; Full access</td>
+                            <td style="padding:0.6rem 0.8rem;text-align:center;color:#34d399;">&#x2705; Bind mount only</td>
+                            <td style="padding:0.6rem 0.8rem;text-align:center;color:#34d399;">&#x2705; Bind mount only</td>
+                        </tr>
+                        <tr>
+                            <td style="padding:0.6rem 1rem;color:#94a3b8;">Secret exfiltration</td>
+                            <td style="padding:0.6rem 0.8rem;text-align:center;color:#f87171;">&#x274C; All host secrets</td>
+                            <td style="padding:0.6rem 0.8rem;text-align:center;color:#34d399;">&#x2705; Firewall blocks</td>
+                            <td style="padding:0.6rem 0.8rem;text-align:center;color:#34d399;">&#x2705; No network access</td>
+                        </tr>
+                        <tr style="background:rgba(255,255,255,0.02);">
+                            <td style="padding:0.6rem 1rem;color:#94a3b8;">Supply chain attack</td>
+                            <td style="padding:0.6rem 0.8rem;text-align:center;color:#f87171;">&#x274C; Full host access</td>
+                            <td style="padding:0.6rem 0.8rem;text-align:center;color:#fb923c;">&#x26A0;&#xFE0F; Container scope</td>
+                            <td style="padding:0.6rem 0.8rem;text-align:center;color:#34d399;">&#x2705; No ambient auth</td>
+                        </tr>
+                        <tr>
+                            <td style="padding:0.6rem 1rem;color:#94a3b8;">Malicious build script</td>
+                            <td style="padding:0.6rem 0.8rem;text-align:center;color:#f87171;">&#x274C; Runs as user</td>
+                            <td style="padding:0.6rem 0.8rem;text-align:center;color:#fb923c;">&#x26A0;&#xFE0F; Container user</td>
+                            <td style="padding:0.6rem 0.8rem;text-align:center;color:#34d399;">&#x2705; WASI sandbox</td>
+                        </tr>
+                        <tr style="background:rgba(255,255,255,0.02);">
+                            <td style="padding:0.6rem 1rem;color:#94a3b8;">Cross-project contamination</td>
+                            <td style="padding:0.6rem 0.8rem;text-align:center;color:#f87171;">&#x274C; Shared filesystem</td>
+                            <td style="padding:0.6rem 0.8rem;text-align:center;color:#34d399;">&#x2705; Isolated workspace</td>
+                            <td style="padding:0.6rem 0.8rem;text-align:center;color:#34d399;">&#x2705; Isolated workspace</td>
+                        </tr>
+                        <tr>
+                            <td style="padding:0.6rem 1rem;color:#94a3b8;">Env consistency</td>
+                            <td style="padding:0.6rem 0.8rem;text-align:center;color:#f87171;">&#x274C; Drift</td>
+                            <td style="padding:0.6rem 0.8rem;text-align:center;color:#34d399;">&#x2705; Deterministic</td>
+                            <td style="padding:0.6rem 0.8rem;text-align:center;color:#34d399;">&#x2705; Deterministic</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================================================================== -->
+    <!-- SLIDE 10: ROLLOUT PLAN                                              -->
+    <!-- ================================================================== -->
+    <div class="slide" data-slide="10">
+        <div class="gradient-mesh">
+            <div class="blob" style="width:380px;height:380px;top:-80px;right:-60px;background:#818cf8;opacity:0.09;"></div>
+            <div class="blob" style="width:250px;height:250px;bottom:-60px;left:-40px;background:#38bdf8;opacity:0.07;"></div>
+        </div>
+        <div class="content">
+            <div class="reveal" style="margin-bottom:0.6rem;"><span class="badge-purple badge">Rollout Plan</span></div>
+            <h2 class="reveal" style="font-family:'Instrument Serif',serif;font-size:clamp(1.9rem,3.8vw,2.7rem);font-weight:700;margin-bottom:1.4rem;">Next Steps</h2>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1rem;">
+                <div class="reveal" style="background:rgba(56,189,248,0.05);border:1px solid rgba(56,189,248,0.14);border-top:3px solid #38bdf8;border-radius:12px;padding:1.2rem;">
+                    <div style="color:#38bdf8;font-family:'JetBrains Mono',monospace;font-size:0.75rem;font-weight:700;margin-bottom:0.6rem;">PHASE 1 &mdash; THIS WEEK</div>
+                    <div style="display:flex;flex-direction:column;gap:0.4rem;">
+                        <div style="display:flex;align-items:flex-start;gap:0.4rem;font-size:0.8rem;color:#94a3b8;"><span style="color:#38bdf8;">&#x25B6;</span> Pick one active repo</div>
+                        <div style="display:flex;align-items:flex-start;gap:0.4rem;font-size:0.8rem;color:#94a3b8;"><span style="color:#38bdf8;">&#x25B6;</span> Copy the template <code style="font-family:'JetBrains Mono',monospace;font-size:0.72rem;color:#64748b;">.devcontainer/</code></div>
+                        <div style="display:flex;align-items:flex-start;gap:0.4rem;font-size:0.8rem;color:#94a3b8;"><span style="color:#38bdf8;">&#x25B6;</span> Write team CLAUDE.md</div>
+                        <div style="display:flex;align-items:flex-start;gap:0.4rem;font-size:0.8rem;color:#94a3b8;"><span style="color:#38bdf8;">&#x25B6;</span> Test with 2&ndash;3 engineers</div>
+                    </div>
+                </div>
+                <div class="reveal" style="background:rgba(129,140,248,0.05);border:1px solid rgba(129,140,248,0.14);border-top:3px solid #818cf8;border-radius:12px;padding:1.2rem;">
+                    <div style="color:#818cf8;font-family:'JetBrains Mono',monospace;font-size:0.75rem;font-weight:700;margin-bottom:0.6rem;">PHASE 2 &mdash; THIS MONTH</div>
+                    <div style="display:flex;flex-direction:column;gap:0.4rem;">
+                        <div style="display:flex;align-items:flex-start;gap:0.4rem;font-size:0.8rem;color:#94a3b8;"><span style="color:#818cf8;">&#x25B6;</span> Roll out to all active repos</div>
+                        <div style="display:flex;align-items:flex-start;gap:0.4rem;font-size:0.8rem;color:#94a3b8;"><span style="color:#818cf8;">&#x25B6;</span> Enable managed settings</div>
+                        <div style="display:flex;align-items:flex-start;gap:0.4rem;font-size:0.8rem;color:#94a3b8;"><span style="color:#818cf8;">&#x25B6;</span> Add egress firewall</div>
+                        <div style="display:flex;align-items:flex-start;gap:0.4rem;font-size:0.8rem;color:#94a3b8;"><span style="color:#818cf8;">&#x25B6;</span> Create company base template</div>
+                    </div>
+                </div>
+                <div class="reveal" style="background:rgba(52,211,153,0.05);border:1px solid rgba(52,211,153,0.14);border-top:3px solid #34d399;border-radius:12px;padding:1.2rem;">
+                    <div style="color:#34d399;font-family:'JetBrains Mono',monospace;font-size:0.75rem;font-weight:700;margin-bottom:0.6rem;">PHASE 3 &mdash; NEXT QUARTER</div>
+                    <div style="display:flex;flex-direction:column;gap:0.4rem;">
+                        <div style="display:flex;align-items:flex-start;gap:0.4rem;font-size:0.8rem;color:#94a3b8;"><span style="color:#34d399;">&#x25B6;</span> WASM sandbox for build scripts</div>
+                        <div style="display:flex;align-items:flex-start;gap:0.4rem;font-size:0.8rem;color:#94a3b8;"><span style="color:#34d399;">&#x25B6;</span> OpenTelemetry monitoring</div>
+                        <div style="display:flex;align-items:flex-start;gap:0.4rem;font-size:0.8rem;color:#94a3b8;"><span style="color:#34d399;">&#x25B6;</span> Server-managed settings</div>
+                        <div style="display:flex;align-items:flex-start;gap:0.4rem;font-size:0.8rem;color:#94a3b8;"><span style="color:#34d399;">&#x25B6;</span> GitHub Codespaces integration</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================================================================== -->
+    <!-- SLIDE 11: CLOSING                                                   -->
+    <!-- ================================================================== -->
+    <div class="slide" data-slide="11">
+        <div class="gradient-mesh">
+            <div class="blob" style="width:500px;height:500px;top:-100px;right:-80px;background:#38bdf8;opacity:0.13;"></div>
+            <div class="blob" style="width:320px;height:320px;bottom:-80px;left:-60px;background:#818cf8;opacity:0.10;"></div>
+            <div class="blob" style="width:200px;height:200px;top:40%;left:8%;background:#34d399;opacity:0.09;"></div>
+        </div>
+        <canvas class="particle-canvas" style="position:absolute;inset:0;z-index:1;"></canvas>
+        <div class="content text-center">
+            <div style="font-size:72px;margin-bottom:1rem;animation:float 3s ease-in-out infinite;" class="reveal">&#x1F680;</div>
+            <h2 class="reveal" style="font-family:'Instrument Serif',serif;font-size:clamp(2.2rem,4.5vw,3.6rem);font-weight:700;background:linear-gradient(135deg,#38bdf8,#818cf8,#34d399);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:1rem;">Secure Velocity</h2>
+            <p class="reveal" style="color:#94a3b8;font-size:0.95rem;max-width:600px;margin:0 auto 1.4rem;line-height:1.7;font-style:italic;">"We're not just containerizing our app &mdash; we're containerizing our development experience and our AI coding workflow."</p>
+            <div style="display:flex;justify-content:center;gap:1rem;flex-wrap:wrap;" class="reveal">
+                <div style="background:rgba(56,189,248,0.08);border:1px solid rgba(56,189,248,0.18);border-radius:10px;padding:0.9rem 1.4rem;text-align:center;min-width:140px;">
+                    <div style="font-size:1.6rem;font-weight:700;color:#38bdf8;font-family:'JetBrains Mono',monospace;" data-count="5" data-suffix=" min">0 min</div>
+                    <div style="color:#64748b;font-size:0.75rem;margin-top:0.2rem;">Onboarding time</div>
+                </div>
+                <div style="background:rgba(52,211,153,0.08);border:1px solid rgba(52,211,153,0.18);border-radius:10px;padding:0.9rem 1.4rem;text-align:center;min-width:140px;">
+                    <div style="font-size:1.6rem;font-weight:700;color:#34d399;font-family:'JetBrains Mono',monospace;" data-count="5" data-suffix=" layers">0 layers</div>
+                    <div style="color:#64748b;font-size:0.75rem;margin-top:0.2rem;">Security depth</div>
+                </div>
+                <div style="background:rgba(129,140,248,0.08);border:1px solid rgba(129,140,248,0.18);border-radius:10px;padding:0.9rem 1.4rem;text-align:center;min-width:140px;">
+                    <div style="font-size:1.6rem;font-weight:700;color:#818cf8;font-family:'JetBrains Mono',monospace;" data-count="1" data-suffix=" PR">0 PR</div>
+                    <div style="color:#64748b;font-size:0.75rem;margin-top:0.2rem;">To ship it all</div>
+                </div>
+                <div style="background:rgba(167,139,250,0.08);border:1px solid rgba(167,139,250,0.18);border-radius:10px;padding:0.9rem 1.4rem;text-align:center;min-width:140px;">
+                    <div style="font-size:1.6rem;font-weight:700;color:#a78bfa;font-family:'JetBrains Mono',monospace;" data-count="0" data-suffix=" drift">0 drift</div>
+                    <div style="color:#64748b;font-size:0.75rem;margin-top:0.2rem;">Env inconsistencies</div>
+                </div>
+            </div>
+            <p class="reveal" style="margin-top:1.8rem;color:#475569;font-size:0.78rem;font-family:'JetBrains Mono',monospace;">Template: <span style="color:#38bdf8;">this repo</span> &middot; Docs: code.claude.com/docs/devcontainer &middot; Spec: containers.dev</p>
+        </div>
+    </div>
+
+</div>
+
+<div class="nav-controls">
+    <button class="nav-btn" onclick="changeSlide(-1)">&#8249;</button>
+    <div class="slide-dots" id="dots"></div>
+    <button class="nav-btn" onclick="changeSlide(1)">&#8250;</button>
+    <span class="slide-counter" id="counter">1 / 11</span>
+</div>
+
+<script>
+    let current = 1;
+    const total = document.querySelectorAll('.slide').length;
+    const dotsContainer = document.getElementById('dots');
+    const counter = document.getElementById('counter');
+    for (let i = 1; i <= total; i++) { const dot = document.createElement('div'); dot.className = 'dot' + (i === 1 ? ' active' : ''); dot.onclick = () => goToSlide(i); dotsContainer.appendChild(dot); }
+    function goToSlide(n) {
+        const prev = document.querySelector('.slide.active');
+        const next = document.querySelector(`.slide[data-slide="${n}"]`);
+        if (prev) prev.classList.remove('active');
+        if (next) { next.classList.add('active'); animateSlide(next); }
+        current = n; updateNav();
+    }
+    function changeSlide(dir) { let next = current + dir; if (next < 1) next = total; if (next > total) next = 1; goToSlide(next); }
+    function updateNav() { document.querySelectorAll('.dot').forEach((d, i) => { d.classList.toggle('active', i + 1 === current); }); counter.textContent = current + ' / ' + total; }
+    document.addEventListener('keydown', (e) => { if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); changeSlide(1); } if (e.key === 'ArrowLeft') { e.preventDefault(); changeSlide(-1); } });
+    let touchStartX = 0;
+    document.addEventListener('touchstart', (e) => { touchStartX = e.touches[0].clientX; });
+    document.addEventListener('touchend', (e) => { const diff = touchStartX - e.changedTouches[0].clientX; if (Math.abs(diff) > 50) changeSlide(diff > 0 ? 1 : -1); });
+
+    function animateSlide(slide) {
+        slide.querySelectorAll('.reveal').forEach((el, i) => {
+            el.style.transition = 'none';
+            el.style.opacity = '0';
+            el.style.transform = 'translateY(20px)';
+            el.offsetHeight;
+            const delay = i * 0.08;
+            el.style.transition = `opacity 0.35s ease ${delay}s, transform 0.35s ease ${delay}s`;
+            el.style.opacity = '1';
+            el.style.transform = 'translateY(0px)';
+        });
+        animateSlideEffects(slide);
+    }
+
+    function animateSlideEffects(slide) {
+        slide.querySelectorAll('[data-count]:not(.counted)').forEach(el => {
+            el.classList.add('counted');
+            const target = parseInt(el.dataset.count);
+            const suffix = el.dataset.suffix || '', prefix = el.dataset.prefix || '';
+            let cur = 0; const step = Math.max(1, target / 40);
+            const timer = setInterval(() => { cur += step; if (cur >= target) { cur = target; clearInterval(timer); } el.textContent = prefix + Math.round(cur) + suffix; }, 30);
+        });
+        slide.querySelectorAll('.bar-fill:not(.fill-init)').forEach((bar, i) => {
+            bar.classList.add('fill-init');
+            bar.style.width = '0%'; bar.style.transition = `width 0.5s ease ${i * 0.08}s`; bar.offsetHeight; bar.style.width = bar.dataset.width + '%';
+        });
+    }
+
+    document.addEventListener('mousemove', (e) => {
+        const spotlight = document.querySelector('.mouse-spotlight');
+        if (spotlight) spotlight.style.background = `radial-gradient(600px circle at ${e.clientX}px ${e.clientY}px, rgba(56,189,248,0.05), transparent 40%)`;
+    });
+
+    (function() {
+        let mouseX = window.innerWidth / 2, mouseY = window.innerHeight / 2;
+        const cx = window.innerWidth / 2, cy = window.innerHeight / 2;
+        document.addEventListener('mousemove', (e) => { mouseX = e.clientX; mouseY = e.clientY; });
+        (function tick() {
+            const ox = (mouseX - cx) / cx, oy = (mouseY - cy) / cy;
+            document.querySelectorAll('.deco-shape').forEach(shape => {
+                const speed = parseFloat(shape.dataset.speed) || 0.03;
+                shape.style.transform = `translate(${ox * speed * 100}px, ${oy * speed * 100}px)`;
+            });
+            requestAnimationFrame(tick);
+        })();
+    })();
+
+    window.initParticles = function(canvas, options) {
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        canvas.width = canvas.offsetWidth; canvas.height = canvas.offsetHeight;
+        const interactive = options.interactive !== false;
+        const count = options.count || (interactive ? 55 : 18);
+        let mx = -1000, my = -1000;
+        const particles = Array.from({ length: count }, () => ({
+            x: Math.random() * canvas.width, y: Math.random() * canvas.height,
+            vx: (Math.random() - 0.5) * 0.3, vy: (Math.random() - 0.5) * 0.3,
+            size: Math.random() * 2.5 + 0.8, alpha: Math.random() * 0.3 + 0.08
+        }));
+        if (interactive) {
+            canvas.addEventListener('mousemove', (e) => { const rect = canvas.getBoundingClientRect(); mx = e.clientX - rect.left; my = e.clientY - rect.top; });
+            canvas.addEventListener('mouseleave', () => { mx = -1000; my = -1000; });
+        }
+        (function animate() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            particles.forEach(p => {
+                if (interactive) { const dx = p.x - mx, dy = p.y - my, dist = Math.sqrt(dx * dx + dy * dy); if (dist < 120) { const force = (120 - dist) / 120 * 2; p.vx += (dx / dist) * force * 0.1; p.vy += (dy / dist) * force * 0.1; } }
+                p.vx *= 0.98; p.vy *= 0.98; p.x += p.vx; p.y += p.vy;
+                if (p.x < 0) p.x = canvas.width; if (p.x > canvas.width) p.x = 0;
+                if (p.y < 0) p.y = canvas.height; if (p.y > canvas.height) p.y = 0;
+                ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(56,189,248,${p.alpha})`; ctx.fill();
+            });
+            requestAnimationFrame(animate);
+        })();
+    };
+    document.querySelectorAll('.particle-canvas').forEach(c => window.initParticles(c, { interactive: true, count: 55 }));
+
+    try { animateSlide(document.querySelector('.slide.active')); } catch(e) {}
+</script>
+</body>
+</html>

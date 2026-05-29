@@ -1,0 +1,105 @@
+{
+  // =============================================================================
+  // Dev Container + Claude Code: Best Practices Template
+  // =============================================================================
+  // This template provides a secure, production-ready dev container setup with
+  // Claude Code pre-installed, network egress restrictions, and org policy
+  // enforcement. Customize it for your project's toolchain.
+  //
+  // Getting started: https://code.claude.com/docs/en/devcontainer
+  // =============================================================================
+
+  "name": "Secure Claude Code Workspace",
+
+  "build": {
+    "dockerfile": "Dockerfile",
+    "args": {
+      // Pin Claude Code version for reproducible builds.
+      // Set to "latest" to always get the newest release.
+      "CLAUDE_CODE_VERSION": "latest",
+
+      // Pass host timezone into the container.
+      "TZ": "${localEnv:TZ:UTC}"
+    }
+  },
+
+  // ---------------------------------------------------------------------------
+  // Security: run as non-root user
+  // ---------------------------------------------------------------------------
+  // Claude Code rejects --dangerously-skip-permissions when run as root.
+  // Always set remoteUser to a non-root account.
+  "remoteUser": "developer",
+
+  // ---------------------------------------------------------------------------
+  // Network hardening capabilities
+  // ---------------------------------------------------------------------------
+  // Required only if you use init-firewall.sh for egress restrictions.
+  // Remove these if you rely on external network controls instead.
+  "runArgs": [
+    "--cap-add=NET_ADMIN",
+    "--cap-add=NET_RAW"
+  ],
+
+  // ---------------------------------------------------------------------------
+  // Workspace mount
+  // ---------------------------------------------------------------------------
+  // Claude Code can only modify files within /workspace (the bind mount).
+  // It cannot reach host system files, adjacent projects, or home directory.
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=delegated",
+  "workspaceFolder": "/workspace",
+
+  // ---------------------------------------------------------------------------
+  // Persistent volumes
+  // ---------------------------------------------------------------------------
+  // Persist Claude Code auth, settings, and session history across rebuilds.
+  // ${devcontainerId} isolates state per-project so different repos don't clash.
+  "mounts": [
+    "source=claude-config-${devcontainerId},target=/home/developer/.claude,type=volume",
+    "source=claude-bashhistory-${devcontainerId},target=/commandhistory,type=volume"
+  ],
+
+  // ---------------------------------------------------------------------------
+  // Container environment variables
+  // ---------------------------------------------------------------------------
+  "containerEnv": {
+    // Point Claude Code to the persisted config volume.
+    "CLAUDE_CONFIG_DIR": "/home/developer/.claude",
+
+    // Disable auto-updater for version-pinned builds.
+    // Remove this line if CLAUDE_CODE_VERSION is "latest" and you want updates.
+    "DISABLE_AUTOUPDATER": "1",
+
+    // Optional: disable telemetry and error reporting for air-gapped or
+    // privacy-sensitive environments.
+    // "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+
+    // Node memory limit for large projects.
+    "NODE_OPTIONS": "--max-old-space-size=4096"
+  },
+
+  // ---------------------------------------------------------------------------
+  // Editor customizations (VS Code / Cursor)
+  // ---------------------------------------------------------------------------
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "anthropic.claude-code"
+        // Add your team's standard extensions below:
+        // "dbaeumer.vscode-eslint",
+        // "esbenp.prettier-vscode",
+        // "eamodio.gitlens"
+      ],
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "zsh"
+      }
+    }
+  },
+
+  // ---------------------------------------------------------------------------
+  // Lifecycle commands
+  // ---------------------------------------------------------------------------
+  // Start the egress firewall after the container is ready.
+  // Remove this if you don't use the firewall script.
+  "postStartCommand": "sudo /usr/local/bin/init-firewall.sh",
+  "waitFor": "postStartCommand"
+}
