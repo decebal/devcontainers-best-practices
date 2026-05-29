@@ -5,9 +5,10 @@
   "//": "See: https://code.claude.com/docs/en/settings#settings-files",
 
   "permissions": {
-    "//": "Set to 'disable' to prevent engineers from using --dangerously-skip-permissions.",
-    "//": "Set to 'allow' if your container isolation + firewall is sufficient.",
-    "disableBypassPermissionsMode": "allow",
+    "//": "Disable bypass mode to prevent nullifying the entire permission model.",
+    "//": "Even with container isolation, bypass mode lets Claude read .env, .pem,",
+    "//": "and other denied files. Set to 'allow' only if you accept that risk.",
+    "disableBypassPermissionsMode": "disable",
 
     "//": "Default permission mode for Claude Code sessions.",
     "//": "Options: 'default' (prompt for each action), 'auto' (classifier reviews actions).",
@@ -22,7 +23,10 @@
       "Read(*credentials*)",
       "Read(*secret*)",
       "Read(.devcontainer/**)",
-      "Edit(.devcontainer/**)"
+      "Edit(.devcontainer/**)",
+      "Edit(.claude/settings.json)",
+      "Edit(.git/hooks/**)",
+      "Edit(.github/workflows/**)"
     ]
   }
 }

@@ -3,6 +3,12 @@
 .env.*
 !.env.example
 
+# Claude Code personal settings (may contain broad permissions)
+.claude/settings.local.json
+
+# Build artifacts
+target/
+
 # Editor
 .vscode/*
 !.vscode/extensions.json

