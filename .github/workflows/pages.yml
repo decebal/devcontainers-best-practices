@@ -27,6 +27,7 @@ jobs:
         run: |
           mkdir -p _site/template
           cp static/index.html _site/index.html
+          cp static/og-image.png _site/og-image.png
           cp .devcontainer/devcontainer.json _site/template/devcontainer.json
           cp .devcontainer/Dockerfile _site/template/Dockerfile
           cp .devcontainer/managed-settings.json _site/template/managed-settings.json
