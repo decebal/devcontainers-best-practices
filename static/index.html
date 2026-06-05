@@ -517,9 +517,79 @@ iptables -A OUTPUT -m set<br>
     </div>
 
     <!-- ================================================================== -->
-    <!-- SLIDE 10: CLOSING                                                   -->
+    <!-- SLIDE 10: SANDBOXING LANDSCAPE — DOCKER vs DEVCONTAINERS            -->
     <!-- ================================================================== -->
     <div class="slide" data-slide="10">
+        <div class="gradient-mesh">
+            <div class="blob" style="width:360px;height:360px;top:-80px;left:-50px;background:#f59e0b;opacity:0.08;"></div>
+            <div class="blob" style="width:280px;height:280px;bottom:-60px;right:-40px;background:#38bdf8;opacity:0.07;"></div>
+        </div>
+        <div class="content">
+            <div class="reveal" style="margin-bottom:0.5rem;"><span class="badge" style="background:rgba(245,158,11,0.12);color:#f59e0b;border:1px solid rgba(245,158,11,0.25);padding:0.2rem 0.7rem;border-radius:999px;font-size:0.7rem;font-family:'JetBrains Mono',monospace;font-weight:600;">Landscape</span></div>
+            <h2 class="reveal" style="font-family:'Instrument Serif',serif;font-size:clamp(1.7rem,3.5vw,2.4rem);font-weight:700;margin-bottom:1rem;">Sandboxing Options &amp; Why Dev Containers Win</h2>
+
+            <!-- Two-column comparison -->
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.8rem;margin-bottom:0.8rem;">
+                <!-- Docker AI Sandboxes -->
+                <div class="reveal" style="background:rgba(248,113,113,0.04);border:1px solid rgba(248,113,113,0.12);border-top:3px solid #f87171;border-radius:12px;padding:0.9rem;">
+                    <div style="display:flex;align-items:center;gap:0.4rem;margin-bottom:0.5rem;">
+                        <span style="font-size:1.1rem;">&#x1F433;</span>
+                        <span style="color:#f87171;font-family:'JetBrains Mono',monospace;font-size:0.72rem;font-weight:700;">DOCKER AI SANDBOXES</span>
+                        <span style="background:rgba(248,113,113,0.15);color:#f87171;font-size:0.6rem;padding:0.1rem 0.4rem;border-radius:999px;font-family:'JetBrains Mono',monospace;">PAID</span>
+                    </div>
+                    <div style="display:flex;flex-direction:column;gap:0.35rem;">
+                        <div style="font-size:0.72rem;color:#94a3b8;line-height:1.4;"><strong style="color:#f87171;">Paid add-on</strong> on top of Docker Business subscription</div>
+                        <div style="font-size:0.72rem;color:#94a3b8;line-height:1.4;"><strong style="color:#f87171;">Managed governance</strong> &mdash; centralized policy enforcement out of box</div>
+                        <div style="font-size:0.72rem;color:#94a3b8;line-height:1.4;"><strong style="color:#f87171;">Sandbox isolation</strong> included, no DIY wiring needed</div>
+                        <div style="font-size:0.72rem;color:#94a3b8;line-height:1.4;"><strong style="color:#f87171;">Vendor lock-in</strong> &mdash; Docker-specific, <code style="font-family:'JetBrains Mono',monospace;font-size:0.65rem;">sbx run claude</code> workflow only</div>
+                        <div style="font-size:0.72rem;color:#94a3b8;line-height:1.4;"><strong style="color:#f87171;">Terminal-only</strong> &mdash; agent runs detached from IDE extension</div>
+                    </div>
+                </div>
+                <!-- Dev Containers -->
+                <div class="reveal" style="background:rgba(52,211,153,0.04);border:1px solid rgba(52,211,153,0.12);border-top:3px solid #34d399;border-radius:12px;padding:0.9rem;">
+                    <div style="display:flex;align-items:center;gap:0.4rem;margin-bottom:0.5rem;">
+                        <span style="font-size:1.1rem;">&#x1F4E6;</span>
+                        <span style="color:#34d399;font-family:'JetBrains Mono',monospace;font-size:0.72rem;font-weight:700;">DEV CONTAINERS</span>
+                        <span style="background:rgba(52,211,153,0.15);color:#34d399;font-size:0.6rem;padding:0.1rem 0.4rem;border-radius:999px;font-family:'JetBrains Mono',monospace;">FREE &amp; OPEN</span>
+                    </div>
+                    <div style="display:flex;flex-direction:column;gap:0.35rem;">
+                        <div style="font-size:0.72rem;color:#94a3b8;line-height:1.4;"><strong style="color:#34d399;">Free, open spec</strong> &mdash; works with Docker, Podman, Rancher Desktop</div>
+                        <div style="font-size:0.72rem;color:#94a3b8;line-height:1.4;"><strong style="color:#34d399;">DIY governance</strong> via <code style="font-family:'JetBrains Mono',monospace;font-size:0.65rem;">managed-settings.json</code> + <code style="font-family:'JetBrains Mono',monospace;font-size:0.65rem;">init-firewall.sh</code></div>
+                        <div style="font-size:0.72rem;color:#94a3b8;line-height:1.4;"><strong style="color:#34d399;">Read-only</strong> <code style="font-family:'JetBrains Mono',monospace;font-size:0.65rem;">.devcontainer/</code> mount &mdash; agent can't modify constraints</div>
+                        <div style="font-size:0.72rem;color:#94a3b8;line-height:1.4;"><strong style="color:#34d399;">Resource limits</strong> in <code style="font-family:'JetBrains Mono',monospace;font-size:0.65rem;">devcontainer.json</code> (CPU, memory caps)</div>
+                        <div style="font-size:0.72rem;color:#94a3b8;line-height:1.4;"><strong style="color:#34d399;">Full IDE integration</strong> &mdash; VS Code, JetBrains, Codespaces</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Requirements checklist -->
+            <div class="reveal" style="background:rgba(56,189,248,0.04);border:1px solid rgba(56,189,248,0.10);border-radius:12px;padding:0.7rem 0.9rem;">
+                <div style="color:#38bdf8;font-family:'JetBrains Mono',monospace;font-size:0.68rem;font-weight:700;margin-bottom:0.5rem;">REQUIREMENTS SCORECARD</div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.25rem 1.5rem;">
+                    <div style="font-size:0.68rem;color:#94a3b8;line-height:1.5;"><span style="color:#34d399;">&#x2705;</span> <strong style="color:#e2e8f0;">MUST</strong> limit agent to in-scope files only</div>
+                    <div style="font-size:0.68rem;color:#94a3b8;line-height:1.5;"><span style="color:#34d399;">&#x2705;</span> <strong style="color:#e2e8f0;">SHOULD</strong> be agent-agnostic</div>
+                    <div style="font-size:0.68rem;color:#94a3b8;line-height:1.5;"><span style="color:#34d399;">&#x2705;</span> <strong style="color:#e2e8f0;">MUST</strong> allow full agent capabilities (incl. network)</div>
+                    <div style="font-size:0.68rem;color:#94a3b8;line-height:1.5;"><span style="color:#34d399;">&#x2705;</span> <strong style="color:#e2e8f0;">SHOULD</strong> be free / open-source</div>
+                    <div style="font-size:0.68rem;color:#94a3b8;line-height:1.5;"><span style="color:#34d399;">&#x2705;</span> <strong style="color:#e2e8f0;">MUST</strong> allow latest agent versions / models</div>
+                    <div style="font-size:0.68rem;color:#94a3b8;line-height:1.5;"><span style="color:#34d399;">&#x2705;</span> <strong style="color:#e2e8f0;">SHOULD</strong> allow additional tools / MCP servers</div>
+                    <div style="font-size:0.68rem;color:#94a3b8;line-height:1.5;"><span style="color:#34d399;">&#x2705;</span> <strong style="color:#e2e8f0;">SHOULD</strong> be centrally manageable by IT</div>
+                    <div style="font-size:0.68rem;color:#94a3b8;line-height:1.5;"><span style="color:#34d399;">&#x2705;</span> <strong style="color:#e2e8f0;">COULD</strong> integrate with IDEs</div>
+                    <div style="font-size:0.68rem;color:#94a3b8;line-height:1.5;"><span style="color:#34d399;">&#x2705;</span> <strong style="color:#e2e8f0;">SHOULD</strong> reduce permission prompts (skip perms)</div>
+                    <div style="font-size:0.68rem;color:#94a3b8;line-height:1.5;"><span style="color:#34d399;">&#x2705;</span> <strong style="color:#e2e8f0;">COULD</strong> be enforceable in future</div>
+                </div>
+            </div>
+
+            <!-- Bottom line -->
+            <div class="reveal" style="margin-top:0.6rem;text-align:center;">
+                <p style="color:#94a3b8;font-size:0.78rem;line-height:1.6;max-width:700px;margin:0 auto;"><strong style="color:#f59e0b;">Bottom line:</strong> Dev Containers = <strong style="color:#34d399;">free but DIY</strong> governance. Docker Sandboxes = <strong style="color:#f87171;">paid but managed</strong>. Our template already implements most of what Docker charges for &mdash; manually.</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================================================================== -->
+    <!-- SLIDE 11: CLOSING                                                   -->
+    <!-- ================================================================== -->
+    <div class="slide" data-slide="11">
         <div class="gradient-mesh">
             <div class="blob" style="width:500px;height:500px;top:-100px;right:-80px;background:#38bdf8;opacity:0.13;"></div>
             <div class="blob" style="width:320px;height:320px;bottom:-80px;left:-60px;background:#818cf8;opacity:0.10;"></div>
@@ -562,7 +632,7 @@ iptables -A OUTPUT -m set<br>
     <button class="nav-btn" onclick="changeSlide(-1)">&#8249;</button>
     <div class="slide-dots" id="dots"></div>
     <button class="nav-btn" onclick="changeSlide(1)">&#8250;</button>
-    <span class="slide-counter" id="counter">1 / 10</span>
+    <span class="slide-counter" id="counter">1 / 11</span>
 </div>
 
 <script>

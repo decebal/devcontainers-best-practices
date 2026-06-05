@@ -39,11 +39,14 @@
   // ---------------------------------------------------------------------------
   // Capabilities: drop all, add back only what's needed
   // ---------------------------------------------------------------------------
-  // Inspired by centminmod/claude-code-devcontainers (cap-drop ALL pattern)
-  // and FoamoftheSea/claude-code-sandbox (no-new-privileges).
+  // Inspired by centminmod/claude-code-devcontainers (cap-drop ALL pattern).
   //
   // NET_ADMIN + NET_RAW are required only for init-firewall.sh.
   // Remove them if you rely on external network controls.
+  //
+  // NOTE: no-new-privileges was removed because it blocks sudo, which is
+  // needed by postCreateCommand/postStartCommand. Security is maintained
+  // via cap-drop=ALL + scoped sudoers (only 2 whitelisted scripts).
   //
   // IMPORTANT: Do NOT add SYS_ADMIN — it defeats read-only mount protections.
   // See: trailofbits/claude-code-devcontainer check_no_sys_admin()
@@ -51,7 +54,9 @@
     "--cap-drop=ALL",
     "--cap-add=NET_ADMIN",
     "--cap-add=NET_RAW",
-    "--security-opt=no-new-privileges:true",
+    // no-new-privileges removed: it blocks sudo which is needed by
+    // postCreateCommand and postStartCommand. Security is maintained via
+    // cap-drop=ALL + scoped sudoers (only 2 scripts allowed as root).
     "--pids-limit=256",
     "--memory=8g",
 
@@ -120,6 +125,11 @@
     //
     // To explicitly allow scripts for trusted packages:
     //   bun install --trust @anthropic-ai/claude-code
+    //
+    // BUN_INSTALL points to ~/.bun for global package cache (volume-mounted
+    // for persistence). The bun binary itself lives in /usr/local/bin to
+    // avoid being clobbered by the empty volume on first create.
+    // See: https://github.com/decebal/devcontainers-best-practices/issues/2
     "BUN_INSTALL": "/home/developer/.bun"
   },
 

@@ -90,14 +90,16 @@ RUN mkdir -p /workspace /home/$USERNAME/.claude /home/$USERNAME/.bun /commandhis
 # ---------------------------------------------------------------------------
 # Install Bun
 # ---------------------------------------------------------------------------
-# Install bun globally. Bun provides a fast JS/TS runtime, package manager,
-# bundler, and test runner in one binary.
-ENV BUN_INSTALL=/home/$USERNAME/.bun
-ENV PATH=$BUN_INSTALL/bin:$PATH
+# Install bun to /usr/local (system-wide) so the Docker volume mounted at
+# ~/.bun (for cache/globals persistence) doesn't clobber the binary.
+# See: https://github.com/decebal/devcontainers-best-practices/issues/2
+ENV BUN_INSTALL=/usr/local
+ENV PATH=/usr/local/bin:$PATH
 
-USER $USERNAME
 RUN curl -fsSL https://bun.sh/install | bash -s -- "bun-v${BUN_VERSION}"
-USER root
+
+# Create ~/.bun for cache/global packages (volume-mounted in devcontainer.json)
+RUN mkdir -p /home/$USERNAME/.bun && chown $USERNAME:$USERNAME /home/$USERNAME/.bun
 
 # ---------------------------------------------------------------------------
 # Organization-managed settings (HIGHEST PRECEDENCE)
@@ -144,17 +146,21 @@ RUN sh -c "$(wget -O- https://github.com/deluan/zsh-in-docker/releases/download/
 # ---------------------------------------------------------------------------
 # Install Claude Code
 # ---------------------------------------------------------------------------
-# Install globally via bun so it's available to all sessions in the container.
+# Install globally via bun to /usr/local so it's available system-wide.
+# Runs as root because BUN_INSTALL=/usr/local requires write to /usr/local/bin.
+USER root
 RUN bun install -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}
+USER $USERNAME
 
 # ---------------------------------------------------------------------------
 # Startup scripts + scoped sudoers (least-privilege)
 # ---------------------------------------------------------------------------
 # Only the firewall and volume-ownership scripts can run as root.
 # This is more secure than broad NOPASSWD:ALL.
-COPY init-firewall.sh chown-volumes.sh /usr/local/bin/
+COPY init-firewall.sh refresh-firewall-dns.sh chown-volumes.sh /usr/local/bin/
+COPY firewall-allowed-domains.conf /usr/local/etc/firewall-allowed-domains.conf
 USER root
-RUN chmod +x /usr/local/bin/init-firewall.sh /usr/local/bin/chown-volumes.sh \
+RUN chmod +x /usr/local/bin/init-firewall.sh /usr/local/bin/refresh-firewall-dns.sh /usr/local/bin/chown-volumes.sh \
     && echo "$USERNAME ALL=(root) NOPASSWD: /usr/local/bin/init-firewall.sh, /usr/local/bin/chown-volumes.sh" > /etc/sudoers.d/$USERNAME \
     && chmod 0440 /etc/sudoers.d/$USERNAME
 
