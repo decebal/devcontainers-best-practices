@@ -35,11 +35,18 @@ async fn template_firewall() -> HttpResponse {
         .body(include_str!("../.devcontainer/init-firewall.sh"))
 }
 
-async fn template_chown_volumes() -> HttpResponse {
+async fn template_refresh_dns() -> HttpResponse {
     HttpResponse::Ok()
         .content_type("text/plain")
-        .insert_header(("Content-Disposition", "attachment; filename=\"chown-volumes.sh\""))
-        .body(include_str!("../.devcontainer/chown-volumes.sh"))
+        .insert_header(("Content-Disposition", "attachment; filename=\"refresh-firewall-dns.sh\""))
+        .body(include_str!("../.devcontainer/refresh-firewall-dns.sh"))
+}
+
+async fn template_firewall_domains() -> HttpResponse {
+    HttpResponse::Ok()
+        .content_type("text/plain")
+        .insert_header(("Content-Disposition", "attachment; filename=\"firewall-allowed-domains.conf\""))
+        .body(include_str!("../.devcontainer/firewall-allowed-domains.conf"))
 }
 
 #[actix_web::main]
@@ -55,7 +62,8 @@ async fn main() -> std::io::Result<()> {
     println!("  /template/Dockerfile");
     println!("  /template/managed-settings.json");
     println!("  /template/init-firewall.sh");
-    println!("  /template/chown-volumes.sh");
+    println!("  /template/refresh-firewall-dns.sh");
+    println!("  /template/firewall-allowed-domains.conf");
 
     HttpServer::new(|| {
         App::new()
@@ -64,7 +72,8 @@ async fn main() -> std::io::Result<()> {
             .route("/template/Dockerfile", web::get().to(template_dockerfile))
             .route("/template/managed-settings.json", web::get().to(template_managed_settings))
             .route("/template/init-firewall.sh", web::get().to(template_firewall))
-            .route("/template/chown-volumes.sh", web::get().to(template_chown_volumes))
+            .route("/template/refresh-firewall-dns.sh", web::get().to(template_refresh_dns))
+            .route("/template/firewall-allowed-domains.conf", web::get().to(template_firewall_domains))
             .service(Files::new("/static", "static").show_files_listing())
     })
     .bind(("0.0.0.0", port))?

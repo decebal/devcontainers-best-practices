@@ -84,8 +84,14 @@ RUN groupadd --gid $USER_GID $USERNAME \
 # ---------------------------------------------------------------------------
 # Directories and permissions
 # ---------------------------------------------------------------------------
-RUN mkdir -p /workspace /home/$USERNAME/.claude /home/$USERNAME/.bun /commandhistory \
-    && chown -R $USERNAME:$USERNAME /workspace /home/$USERNAME/.claude /home/$USERNAME/.bun /commandhistory
+# Pre-create the named-volume mount points (node_modules, .bun) owned by the
+# non-root user. When a named volume is empty, Docker copies the image
+# directory's owner into it on first mount, so these volumes come up writable
+# with NO runtime chown / sudo needed. See devcontainer.json "mounts".
+RUN mkdir -p /workspace /workspace/node_modules \
+        /home/$USERNAME/.claude /home/$USERNAME/.bun /commandhistory \
+    && chown -R $USERNAME:$USERNAME /workspace /home/$USERNAME/.claude \
+        /home/$USERNAME/.bun /commandhistory
 
 # ---------------------------------------------------------------------------
 # Install Bun
@@ -155,13 +161,19 @@ USER $USERNAME
 # ---------------------------------------------------------------------------
 # Startup scripts + scoped sudoers (least-privilege)
 # ---------------------------------------------------------------------------
-# Only the firewall and volume-ownership scripts can run as root.
-# This is more secure than broad NOPASSWD:ALL.
-COPY init-firewall.sh refresh-firewall-dns.sh chown-volumes.sh /usr/local/bin/
+# Only the firewall script may run as root — and nothing else. This is far
+# more secure than a broad NOPASSWD:ALL. Volume ownership is handled at build
+# time (see the mount-point pre-creation above), so no privileged chown runs.
+COPY init-firewall.sh refresh-firewall-dns.sh /usr/local/bin/
 COPY firewall-allowed-domains.conf /usr/local/etc/firewall-allowed-domains.conf
 USER root
-RUN chmod +x /usr/local/bin/init-firewall.sh /usr/local/bin/refresh-firewall-dns.sh /usr/local/bin/chown-volumes.sh \
-    && echo "$USERNAME ALL=(root) NOPASSWD: /usr/local/bin/init-firewall.sh, /usr/local/bin/chown-volumes.sh" > /etc/sudoers.d/$USERNAME \
+# Use explicit 0755/0644 (not `chmod +x`): the build-context sources are
+# group-writable (0664), and `chmod +x` would yield 0775 — leaving a
+# NOPASSWD-sudo target group-writable. Lock these down so only root can edit
+# the scripts that run as root.
+RUN chmod 0755 /usr/local/bin/init-firewall.sh /usr/local/bin/refresh-firewall-dns.sh \
+    && chmod 0644 /usr/local/etc/firewall-allowed-domains.conf \
+    && echo "$USERNAME ALL=(root) NOPASSWD: /usr/local/bin/init-firewall.sh" > /etc/sudoers.d/$USERNAME \
     && chmod 0440 /etc/sudoers.d/$USERNAME
 
 # ---------------------------------------------------------------------------

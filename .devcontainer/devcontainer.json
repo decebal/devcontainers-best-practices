@@ -37,26 +37,43 @@
   "remoteUser": "developer",
 
   // ---------------------------------------------------------------------------
-  // Capabilities: drop all, add back only what's needed
+  // Capabilities: drop all, add back only the minimal set required
   // ---------------------------------------------------------------------------
   // Inspired by centminmod/claude-code-devcontainers (cap-drop ALL pattern).
   //
-  // NET_ADMIN + NET_RAW are required only for init-firewall.sh.
-  // Remove them if you rely on external network controls.
+  // --cap-drop=ALL empties the capability bounding set, so we add back ONLY
+  // what the container actually needs at runtime:
   //
-  // NOTE: no-new-privileges was removed because it blocks sudo, which is
-  // needed by postCreateCommand/postStartCommand. Security is maintained
-  // via cap-drop=ALL + scoped sudoers (only 2 whitelisted scripts).
+  //   SETUID + SETGID      Required by sudo. sudo is setuid-root, but under
+  //                        cap-drop=ALL the kernel grants an exec'd setuid
+  //                        binary only the capabilities still in the bounding
+  //                        set. Without these, sudo cannot setuid(0)/setgid(0)
+  //                        and dies with "unable to change to root gid:
+  //                        Operation not permitted" — which breaks
+  //                        postStartCommand (init-firewall.sh runs via sudo).
+  //   NET_ADMIN + NET_RAW  Required by init-firewall.sh (iptables / ipset).
+  //                        Remove them if you rely on external network controls
+  //                        (and drop postStartCommand + SETUID/SETGID too).
+  //
+  // Root access stays gated by scoped sudoers (only init-firewall.sh may run
+  // as root). The base image does ship other setuid-root binaries (su, mount,
+  // passwd, …), but they stay neutralized: a process that reaches uid 0 is
+  // still capped by the bounding set (no CAP_SYS_ADMIN/DAC_OVERRIDE, so mount
+  // fails), and root's password is locked (so su/newgrp fail). SETUID/SETGID
+  // are needed ONLY so sudo can setuid(0)/setgid(0) to run that one script.
   //
   // IMPORTANT: Do NOT add SYS_ADMIN — it defeats read-only mount protections.
   // See: trailofbits/claude-code-devcontainer check_no_sys_admin()
+  //
+  // NOTE on no-new-privileges: we intentionally do NOT set it, because it
+  // blocks setuid escalation and would stop sudo dead. The privilege boundary
+  // here is cap-drop=ALL + minimal cap-add + scoped sudoers instead.
   "runArgs": [
     "--cap-drop=ALL",
+    "--cap-add=SETUID",
+    "--cap-add=SETGID",
     "--cap-add=NET_ADMIN",
     "--cap-add=NET_RAW",
-    // no-new-privileges removed: it blocks sudo which is needed by
-    // postCreateCommand and postStartCommand. Security is maintained via
-    // cap-drop=ALL + scoped sudoers (only 2 scripts allowed as root).
     "--pids-limit=256",
     "--memory=8g",
 
@@ -96,7 +113,17 @@
 
     // Persist bun's global cache and node_modules across rebuilds.
     // Uses Docker volumes so installs survive container recreation.
-    // Requires chown-volumes.sh to fix ownership after mount.
+    //
+    // Ownership: when a named volume is empty, Docker initializes it from the
+    // image's directory at the mount target — copying that directory's owner.
+    // The Dockerfile pre-creates /home/developer/.bun and /workspace/node_modules
+    // owned by "developer", so both volumes come up writable by the non-root
+    // user with NO runtime chown / sudo needed. If you add another volume,
+    // create + chown its target dir in the Dockerfile the same way.
+    //
+    // NOTE: this only initializes EMPTY volumes. If you're upgrading a project
+    // whose volumes already exist root-owned (from an older template version),
+    // reset them once: docker volume rm claude-nodemodules-<id> claude-bunstore-<id>.
     "source=claude-bunstore-${devcontainerId},target=/home/developer/.bun,type=volume",
     "source=claude-nodemodules-${devcontainerId},target=/workspace/node_modules,type=volume"
   ],
@@ -165,10 +192,10 @@
   // ---------------------------------------------------------------------------
   // Lifecycle commands
   // ---------------------------------------------------------------------------
-  // postCreateCommand: runs once after container creation (not on restart).
-  // Fix volume ownership + copy personal VS Code overrides if present.
-  "postCreateCommand": "sudo /usr/local/bin/chown-volumes.sh",
-
+  // No postCreateCommand: volume ownership is handled at build time (the
+  // Dockerfile pre-creates the mount-point dirs owned by "developer", and
+  // Docker copies that ownership into the empty named volumes on first mount).
+  //
   // postStartCommand: runs every time the container starts.
   // Start the egress firewall. Remove this if you don't use the firewall script.
   "postStartCommand": "sudo /usr/local/bin/init-firewall.sh",
